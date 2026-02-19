@@ -54,19 +54,21 @@ class GaussianMechanism:
 def clip_delta(
     tensors: dict[str, torch.Tensor], max_norm: float
 ) -> dict[str, torch.Tensor]:
-    """Clip the L2 norm of a delta to bound sensitivity.
+    """Clip the global L2 norm of a delta to bound sensitivity.
 
-    This is applied before adding noise to ensure the sensitivity assumption holds.
-    Each tensor is clipped independently.
+    Computes a single L2 norm across ALL tensors in the delta and scales
+    them uniformly if the global norm exceeds max_norm. This provides
+    proper user-level DP guarantees (the entire contribution of one client
+    is bounded), unlike per-tensor clipping which is weaker.
     """
-    clipped = {}
-    for key, tensor in tensors.items():
-        t = tensor.float()
-        norm = torch.norm(t)
-        if norm > max_norm:
-            t = t * (max_norm / norm)
-        clipped[key] = t.to(tensor.dtype)
-    return clipped
+    # Compute global L2 norm across all tensors
+    flat = [tensor.float().flatten() for tensor in tensors.values()]
+    global_norm = torch.norm(torch.cat(flat))
+
+    if global_norm > max_norm:
+        scale = max_norm / global_norm
+        return {key: (tensor.float() * scale).to(tensor.dtype) for key, tensor in tensors.items()}
+    return dict(tensors)
 
 
 def apply_dp(

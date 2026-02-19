@@ -148,3 +148,109 @@ class TestDPServer:
         )
         assert resp.status_code == 200
         assert resp.json()["aggregated"] is True
+
+
+class TestAuthentication:
+    @pytest.fixture
+    def auth_client(self, tmp_path):
+        configure(
+            model_id="auth-test",
+            data_dir=str(tmp_path / "data"),
+            strategy="fedavg",
+            min_deltas=2,
+            api_keys=["secret-key-123", "another-key"],
+        )
+        return TestClient(app)
+
+    def test_health_is_public(self, auth_client):
+        resp = auth_client.get("/health")
+        assert resp.status_code == 200
+
+    def test_status_requires_auth(self, auth_client):
+        resp = auth_client.get("/models/auth-test/status")
+        assert resp.status_code == 401
+
+    def test_status_with_valid_bearer(self, auth_client):
+        resp = auth_client.get(
+            "/models/auth-test/status",
+            headers={"Authorization": "Bearer secret-key-123"},
+        )
+        assert resp.status_code == 200
+
+    def test_status_with_invalid_key(self, auth_client):
+        resp = auth_client.get(
+            "/models/auth-test/status",
+            headers={"Authorization": "Bearer wrong-key"},
+        )
+        assert resp.status_code == 403
+
+    def test_submit_requires_auth(self, auth_client):
+        delta_bytes = _make_delta_bytes(seed=1)
+        resp = auth_client.post(
+            "/rounds/0/deltas",
+            files={"file": ("delta.safetensors", delta_bytes, "application/octet-stream")},
+            params={"model_id": "auth-test", "client_id": "c1"},
+        )
+        assert resp.status_code == 401
+
+    def test_submit_with_auth(self, auth_client):
+        delta_bytes = _make_delta_bytes(seed=1)
+        resp = auth_client.post(
+            "/rounds/0/deltas",
+            files={"file": ("delta.safetensors", delta_bytes, "application/octet-stream")},
+            params={"model_id": "auth-test", "client_id": "c1"},
+            headers={"Authorization": "Bearer secret-key-123"},
+        )
+        assert resp.status_code == 200
+
+    def test_no_auth_when_no_keys_configured(self, client):
+        """When no api_keys are set, everything works without auth."""
+        resp = client.get("/models/test-model/status")
+        assert resp.status_code == 200
+
+
+class TestRoundManagement:
+    def test_rejects_submission_to_closed_round(self, client):
+        """After aggregation, round should be closed and reject new submissions."""
+        # Submit 2 deltas to trigger aggregation (min_deltas=2)
+        for i, cid in enumerate(["c1", "c2"]):
+            delta_bytes = _make_delta_bytes(seed=i)
+            resp = client.post(
+                "/rounds/0/deltas",
+                files={"file": ("delta.safetensors", delta_bytes, "application/octet-stream")},
+                params={"model_id": "test-model", "client_id": cid},
+            )
+        assert resp.json()["aggregated"] is True
+
+        # Try to submit to the now-closed round
+        delta_bytes = _make_delta_bytes(seed=99)
+        resp = client.post(
+            "/rounds/0/deltas",
+            files={"file": ("delta.safetensors", delta_bytes, "application/octet-stream")},
+            params={"model_id": "test-model", "client_id": "c3"},
+        )
+        assert resp.status_code == 409
+
+    def test_rejects_duplicate_client(self, client):
+        """Same client_id should not be able to submit twice to same round."""
+        delta_bytes = _make_delta_bytes(seed=1)
+        resp = client.post(
+            "/rounds/0/deltas",
+            files={"file": ("delta.safetensors", delta_bytes, "application/octet-stream")},
+            params={"model_id": "test-model", "client_id": "c1"},
+        )
+        assert resp.status_code == 200
+
+        # Same client again
+        delta_bytes = _make_delta_bytes(seed=2)
+        resp = client.post(
+            "/rounds/0/deltas",
+            files={"file": ("delta.safetensors", delta_bytes, "application/octet-stream")},
+            params={"model_id": "test-model", "client_id": "c1"},
+        )
+        assert resp.status_code == 409
+
+    def test_status_includes_round_state(self, client):
+        resp = client.get("/models/test-model/status")
+        assert "round_state" in resp.json()
+        assert resp.json()["round_state"] == "open"

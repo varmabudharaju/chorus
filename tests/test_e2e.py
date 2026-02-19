@@ -142,10 +142,28 @@ class TestPrivacy:
         # Should not be identical (with overwhelming probability)
         assert not torch.allclose(tensors["weight"], noised["weight"])
 
-    def test_clipping(self):
+    def test_clipping_global_norm(self):
+        """Verify clipping uses global L2 norm across all tensors."""
         from chorus.server.privacy import clip_delta
 
-        tensors = {"weight": torch.ones(10) * 100}  # large norm
+        tensors = {
+            "a": torch.ones(10) * 100,
+            "b": torch.ones(10) * 100,
+        }
         clipped = clip_delta(tensors, max_norm=1.0)
-        norm = torch.norm(clipped["weight"].float())
-        assert norm <= 1.0 + 1e-6
+        # Global norm should be <= max_norm
+        flat = torch.cat([clipped["a"].float().flatten(), clipped["b"].float().flatten()])
+        global_norm = torch.norm(flat)
+        assert global_norm <= 1.0 + 1e-6
+
+        # Both tensors should be scaled by the same factor
+        ratio_a = torch.norm(clipped["a"].float()) / torch.norm(tensors["a"].float())
+        ratio_b = torch.norm(clipped["b"].float()) / torch.norm(tensors["b"].float())
+        assert torch.allclose(ratio_a, ratio_b, atol=1e-6)
+
+    def test_clipping_no_clip_when_under_norm(self):
+        from chorus.server.privacy import clip_delta
+
+        tensors = {"weight": torch.ones(3) * 0.01}  # small norm
+        clipped = clip_delta(tensors, max_norm=100.0)
+        assert torch.allclose(clipped["weight"], tensors["weight"])

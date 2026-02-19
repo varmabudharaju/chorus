@@ -41,8 +41,9 @@ def cli():
 )
 @click.option("--min-deltas", default=2, help="Minimum deltas before aggregation triggers")
 @click.option("--dp-epsilon", type=float, default=None, help="Server-side DP epsilon (disabled if not set)")
+@click.option("--api-key", multiple=True, help="API key(s) for authentication (can specify multiple)")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose logging")
-def server(model, port, host, data_dir, strategy, min_deltas, dp_epsilon, verbose):
+def server(model, port, host, data_dir, strategy, min_deltas, dp_epsilon, api_key, verbose):
     """Start the Chorus aggregation server."""
     _setup_logging(verbose)
 
@@ -54,6 +55,7 @@ def server(model, port, host, data_dir, strategy, min_deltas, dp_epsilon, verbos
         strategy=strategy,
         min_deltas=min_deltas,
         dp_epsilon=dp_epsilon,
+        api_keys=list(api_key) if api_key else None,
     )
 
     console.print(f"[bold green]Chorus Server[/bold green]")

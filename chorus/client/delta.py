@@ -2,16 +2,12 @@
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import torch
 from safetensors.torch import load_file, save_file
 
-
-# Pattern to identify LoRA A and B matrices in PEFT state dicts
-LORA_A_PATTERN = re.compile(r"(.+)\.lora_A\.(?:default\.)?weight$")
-LORA_B_PATTERN = re.compile(r"(.+)\.lora_B\.(?:default\.)?weight$")
+from chorus.patterns import LORA_A_PATTERN, LORA_B_PATTERN
 
 
 def extract_lora_matrices(adapter_path: str | Path) -> dict[str, torch.Tensor]:

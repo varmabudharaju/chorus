@@ -5,9 +5,17 @@ from __future__ import annotations
 import json
 import shutil
 import time
+from enum import Enum
 from pathlib import Path
 
+import torch
 from safetensors.torch import load_file, save_file
+
+
+class RoundState(str, Enum):
+    OPEN = "open"
+    AGGREGATING = "aggregating"
+    CLOSED = "closed"
 
 
 class DeltaStorage:
@@ -132,3 +140,52 @@ class DeltaStorage:
         deltas_dir = self._deltas_dir(model_id, round_id)
         if deltas_dir.exists():
             shutil.rmtree(deltas_dir)
+
+    # --- Round state management ---
+
+    def _round_state_path(self, model_id: str, round_id: int) -> Path:
+        return self._round_dir(model_id, round_id) / "round_state.json"
+
+    def get_round_state(self, model_id: str, round_id: int) -> RoundState:
+        """Get the state of a round. Defaults to OPEN if no state file exists."""
+        state_path = self._round_state_path(model_id, round_id)
+        if not state_path.exists():
+            return RoundState.OPEN
+        data = json.loads(state_path.read_text())
+        return RoundState(data["state"])
+
+    def set_round_state(self, model_id: str, round_id: int, state: RoundState) -> None:
+        """Set the state of a round."""
+        round_dir = self._round_dir(model_id, round_id)
+        round_dir.mkdir(parents=True, exist_ok=True)
+        state_path = self._round_state_path(model_id, round_id)
+        data = {"state": state.value, "timestamp": time.time()}
+        state_path.write_text(json.dumps(data, indent=2))
+
+    def is_round_accepting(self, model_id: str, round_id: int) -> bool:
+        """Check if a round is still accepting submissions."""
+        return self.get_round_state(model_id, round_id) == RoundState.OPEN
+
+    # --- Residual persistence ---
+
+    def _residuals_path(self, model_id: str) -> Path:
+        return self._model_dir(model_id) / "residuals.safetensors"
+
+    def save_residuals(self, model_id: str, residuals: dict[str, torch.Tensor]) -> None:
+        """Persist FedEx-LoRA residuals to disk."""
+        if not residuals:
+            # Remove residuals file if no residuals
+            path = self._residuals_path(model_id)
+            if path.exists():
+                path.unlink()
+            return
+        model_dir = self._model_dir(model_id)
+        model_dir.mkdir(parents=True, exist_ok=True)
+        save_file(residuals, str(self._residuals_path(model_id)))
+
+    def load_residuals(self, model_id: str) -> dict[str, torch.Tensor]:
+        """Load persisted FedEx-LoRA residuals. Returns empty dict if none."""
+        path = self._residuals_path(model_id)
+        if not path.exists():
+            return {}
+        return load_file(str(path))
