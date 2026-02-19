@@ -1,0 +1,64 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fedlora"
+version = "0.1.0"
+description = "Federated LoRA adapter aggregation framework"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+authors = [{ name = "FedLoRA Contributors" }]
+keywords = ["federated-learning", "lora", "llm", "fine-tuning", "peft"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "safetensors>=0.4.0",
+    "httpx>=0.25.0",
+    "click>=8.1.0",
+    "numpy>=1.24.0",
+    "torch>=2.0.0",
+    "rich>=13.0.0",
+    "python-multipart>=0.0.6",
+]
+
+[project.optional-dependencies]
+peft = ["peft>=0.7.0", "transformers>=4.36.0"]
+privacy = ["opacus>=1.4.0"]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-httpx>=0.28.0",
+    "ruff>=0.1.0",
+]
+all = ["fedlora[peft,privacy,dev]"]
+
+[project.scripts]
+fedlora = "fedlora.cli.main:cli"
+
+[project.urls]
+Homepage = "https://github.com/fedlora/fedlora"
+Repository = "https://github.com/fedlora/fedlora"
+
+[tool.hatch.build.targets.wheel]
+packages = ["fedlora"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
