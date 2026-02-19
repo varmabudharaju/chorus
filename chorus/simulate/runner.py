@@ -9,11 +9,11 @@ from pathlib import Path
 import torch
 from safetensors.torch import save_file
 
-from fedlora.server.aggregation import AggregationStrategy, get_strategy
-from fedlora.server.privacy import apply_dp
-from fedlora.server.storage import DeltaStorage
+from chorus.server.aggregation import AggregationStrategy, get_strategy
+from chorus.server.privacy import apply_dp
+from chorus.server.storage import DeltaStorage
 
-logger = logging.getLogger("fedlora.simulate")
+logger = logging.getLogger("chorus.simulate")
 
 
 def generate_synthetic_lora_delta(
@@ -110,7 +110,7 @@ def run_simulation(
 
     use_temp = data_dir is None
     if use_temp:
-        tmp = tempfile.mkdtemp(prefix="fedlora_sim_")
+        tmp = tempfile.mkdtemp(prefix="chorus_sim_")
         data_dir = tmp
 
     storage = DeltaStorage(data_dir)
@@ -177,7 +177,7 @@ def _run_comparison(
             client_deltas.append(delta)
 
         # Compute exact average: avg(B_i @ A_i)
-        from fedlora.server.aggregation import _get_layer_pairs
+        from chorus.server.aggregation import _get_layer_pairs
         layer_pairs = _get_layer_pairs(client_deltas[0])
 
         # Run both strategies

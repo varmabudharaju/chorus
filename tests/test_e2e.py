@@ -5,8 +5,8 @@ import torch
 from fastapi.testclient import TestClient
 from safetensors.torch import save, load
 
-from fedlora.server.app import app, configure
-from fedlora.simulate.runner import run_simulation, generate_synthetic_lora_delta
+from chorus.server.app import app, configure
+from chorus.simulate.runner import run_simulation, generate_synthetic_lora_delta
 
 
 class TestSimulation:
@@ -126,7 +126,7 @@ class TestFullRoundTrip:
 class TestPrivacy:
     def test_dp_noise_magnitude(self):
         """Verify DP noise is calibrated — higher epsilon = less noise."""
-        from fedlora.server.privacy import GaussianMechanism
+        from chorus.server.privacy import GaussianMechanism
 
         low_eps = GaussianMechanism(epsilon=0.1, sensitivity=1.0)
         high_eps = GaussianMechanism(epsilon=10.0, sensitivity=1.0)
@@ -134,7 +134,7 @@ class TestPrivacy:
         assert low_eps.sigma > high_eps.sigma
 
     def test_dp_changes_tensors(self):
-        from fedlora.server.privacy import apply_dp
+        from chorus.server.privacy import apply_dp
 
         tensors = {"weight": torch.ones(100, 100)}
         noised = apply_dp(tensors, epsilon=1.0, max_norm=1.0)
@@ -143,7 +143,7 @@ class TestPrivacy:
         assert not torch.allclose(tensors["weight"], noised["weight"])
 
     def test_clipping(self):
-        from fedlora.server.privacy import clip_delta
+        from chorus.server.privacy import clip_delta
 
         tensors = {"weight": torch.ones(10) * 100}  # large norm
         clipped = clip_delta(tensors, max_norm=1.0)

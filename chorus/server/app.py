@@ -13,11 +13,11 @@ from fastapi import FastAPI, HTTPException, Query, UploadFile, File
 from fastapi.responses import FileResponse, JSONResponse
 from safetensors.torch import load as safetensors_load, save_file
 
-from fedlora.server.aggregation import AggregationStrategy, get_strategy
-from fedlora.server.privacy import apply_dp
-from fedlora.server.storage import DeltaStorage
+from chorus.server.aggregation import AggregationStrategy, get_strategy
+from chorus.server.privacy import apply_dp
+from chorus.server.storage import DeltaStorage
 
-logger = logging.getLogger("fedlora.server")
+logger = logging.getLogger("chorus.server")
 
 
 class ServerState:
@@ -38,15 +38,15 @@ state = ServerState()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info(
-        f"FedLoRA server started — model={state.model_id}, "
+        f"Chorus server started — model={state.model_id}, "
         f"strategy={state.strategy.name}, min_deltas={state.min_deltas}"
     )
     yield
-    logger.info("FedLoRA server shutting down")
+    logger.info("Chorus server shutting down")
 
 
 app = FastAPI(
-    title="FedLoRA Aggregation Server",
+    title="Chorus Aggregation Server",
     description="Federated LoRA adapter aggregation via REST API",
     version="0.1.0",
     lifespan=lifespan,
@@ -55,7 +55,7 @@ app = FastAPI(
 
 def configure(
     model_id: str,
-    data_dir: str = "./fedlora_data",
+    data_dir: str = "./chorus_data",
     strategy: str = "fedex-lora",
     min_deltas: int = 2,
     dp_epsilon: float | None = None,

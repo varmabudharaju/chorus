@@ -8,10 +8,10 @@ This is a simulation — no real health data or model weights are used.
 
 Usage:
     # Option 1: Run the full simulation locally (no server needed)
-    fedlora simulate --clients 5 --rounds 3 --compare
+    chorus simulate --clients 5 --rounds 3 --compare
 
     # Option 2: Run with a server
-    # Terminal 1: fedlora server --model health-v1 --min-deltas 3
+    # Terminal 1: chorus server --model health-v1 --min-deltas 3
     # Terminal 2: python examples/health_metrics/federated_health.py
 """
 
@@ -21,8 +21,8 @@ from pathlib import Path
 import torch
 from safetensors.torch import save_file
 
-from fedlora import FedLoRAClient
-from fedlora.simulate.runner import run_simulation
+from chorus import ChorusClient
+from chorus.simulate.runner import run_simulation
 
 
 def run_local_simulation():
@@ -86,10 +86,10 @@ def run_local_simulation():
 
 
 def run_with_server():
-    """Run with a live FedLoRA server (must be started separately).
+    """Run with a live Chorus server (must be started separately).
 
     Start the server first:
-        fedlora server --model health-v1 --min-deltas 3 --strategy fedex-lora
+        chorus server --model health-v1 --min-deltas 3 --strategy fedex-lora
     """
     SERVER = "http://localhost:8080"
     MODEL = "health-v1"
@@ -113,7 +113,7 @@ def run_with_server():
             save_file(tensors, str(adapter_dir / "adapter_model.safetensors"))
 
             # Submit
-            client = FedLoRAClient(
+            client = ChorusClient(
                 server=SERVER,
                 model_id=MODEL,
                 client_id=hospital,

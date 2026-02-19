@@ -5,7 +5,7 @@ import torch
 from fastapi.testclient import TestClient
 from safetensors.torch import save
 
-from fedlora.server.app import app, configure
+from chorus.server.app import app, configure
 
 
 @pytest.fixture

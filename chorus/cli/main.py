@@ -1,4 +1,4 @@
-"""FedLoRA CLI — server, submit, pull, simulate commands."""
+"""Chorus CLI — server, submit, pull, simulate commands."""
 
 from __future__ import annotations
 
@@ -22,9 +22,9 @@ def _setup_logging(verbose: bool) -> None:
 
 
 @click.group()
-@click.version_option(package_name="fedlora")
+@click.version_option(package_name="chorus")
 def cli():
-    """FedLoRA — Federated LoRA Adapter Aggregation Framework."""
+    """Chorus — Federated LoRA Adapter Aggregation Framework."""
     pass
 
 
@@ -32,7 +32,7 @@ def cli():
 @click.option("--model", required=True, help="Model ID (e.g. meta-llama/Llama-3.2-3B)")
 @click.option("--port", default=8080, help="Port to listen on")
 @click.option("--host", default="0.0.0.0", help="Host to bind to")
-@click.option("--data-dir", default="./fedlora_data", help="Data directory for storage")
+@click.option("--data-dir", default="./chorus_data", help="Data directory for storage")
 @click.option(
     "--strategy",
     type=click.Choice(["fedavg", "fedex-lora"]),
@@ -43,10 +43,10 @@ def cli():
 @click.option("--dp-epsilon", type=float, default=None, help="Server-side DP epsilon (disabled if not set)")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose logging")
 def server(model, port, host, data_dir, strategy, min_deltas, dp_epsilon, verbose):
-    """Start the FedLoRA aggregation server."""
+    """Start the Chorus aggregation server."""
     _setup_logging(verbose)
 
-    from fedlora.server.app import configure
+    from chorus.server.app import configure
 
     configure(
         model_id=model,
@@ -56,7 +56,7 @@ def server(model, port, host, data_dir, strategy, min_deltas, dp_epsilon, verbos
         dp_epsilon=dp_epsilon,
     )
 
-    console.print(f"[bold green]FedLoRA Server[/bold green]")
+    console.print(f"[bold green]Chorus Server[/bold green]")
     console.print(f"  Model:    {model}")
     console.print(f"  Strategy: {strategy}")
     console.print(f"  Min deltas: {min_deltas}")
@@ -65,7 +65,7 @@ def server(model, port, host, data_dir, strategy, min_deltas, dp_epsilon, verbos
     console.print()
 
     import uvicorn
-    from fedlora.server.app import app
+    from chorus.server.app import app
 
     uvicorn.run(app, host=host, port=port, log_level="info" if not verbose else "debug")
 
@@ -82,7 +82,7 @@ def submit(server_url, adapter, model_id, client_id, round_id, dp_epsilon, verbo
     """Submit a LoRA adapter delta to the server."""
     _setup_logging(verbose)
 
-    from fedlora.client.sdk import FedLoRAClient
+    from chorus.client.sdk import ChorusClient
 
     # Get model_id from server if not provided
     if model_id is None:
@@ -91,7 +91,7 @@ def submit(server_url, adapter, model_id, client_id, round_id, dp_epsilon, verbo
         resp.raise_for_status()
         model_id = resp.json()["model_id"]
 
-    client = FedLoRAClient(
+    client = ChorusClient(
         server=server_url,
         model_id=model_id,
         client_id=client_id,
@@ -119,7 +119,7 @@ def pull(server_url, output, model_id, round_id, verbose):
     """Pull the latest aggregated adapter from the server."""
     _setup_logging(verbose)
 
-    from fedlora.client.sdk import FedLoRAClient
+    from chorus.client.sdk import ChorusClient
 
     if model_id is None:
         import httpx
@@ -127,7 +127,7 @@ def pull(server_url, output, model_id, round_id, verbose):
         resp.raise_for_status()
         model_id = resp.json()["model_id"]
 
-    client = FedLoRAClient(server=server_url, model_id=model_id)
+    client = ChorusClient(server=server_url, model_id=model_id)
 
     with client:
         if round_id is not None:
@@ -157,9 +157,9 @@ def simulate(clients, rounds, model, strategy, rank, hidden_dim, dp_epsilon, com
     """Run a simulated federation (for testing/demos)."""
     _setup_logging(verbose)
 
-    from fedlora.simulate.runner import run_simulation
+    from chorus.simulate.runner import run_simulation
 
-    console.print(f"[bold green]FedLoRA Simulation[/bold green]")
+    console.print(f"[bold green]Chorus Simulation[/bold green]")
     console.print(f"  Clients:  {clients}")
     console.print(f"  Rounds:   {rounds}")
     console.print(f"  Strategy: {'comparison' if compare else strategy}")

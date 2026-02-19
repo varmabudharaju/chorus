@@ -7,7 +7,7 @@ import pytest
 import torch
 from safetensors.torch import save_file
 
-from fedlora.client.delta import (
+from chorus.client.delta import (
     extract_lora_matrices,
     get_lora_layer_names,
     save_lora_delta,
