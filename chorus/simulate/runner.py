@@ -177,7 +177,7 @@ def _run_comparison(
             client_deltas.append(delta)
 
         # Compute exact average: avg(B_i @ A_i)
-        from chorus.server.aggregation import _get_layer_pairs
+        from chorus.patterns import get_layer_pairs as _get_layer_pairs
         layer_pairs = _get_layer_pairs(client_deltas[0])
 
         # Run both strategies

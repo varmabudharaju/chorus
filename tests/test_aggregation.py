@@ -3,7 +3,8 @@
 import torch
 import pytest
 
-from chorus.server.aggregation import FedAvg, FedExLoRA, get_strategy, _get_layer_pairs
+from chorus.server.aggregation import FedAvg, FedExLoRA, get_strategy
+from chorus.patterns import get_layer_pairs as _get_layer_pairs
 
 
 def _make_delta(layers, rank=4, dim=16, seed=None):
