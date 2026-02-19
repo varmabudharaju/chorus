@@ -3,13 +3,13 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "fedlora"
+name = "chorus"
 version = "0.1.0"
 description = "Federated LoRA adapter aggregation framework"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
-authors = [{ name = "FedLoRA Contributors" }]
+authors = [{ name = "Chorus Contributors" }]
 keywords = ["federated-learning", "lora", "llm", "fine-tuning", "peft"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -43,17 +43,17 @@ dev = [
     "pytest-httpx>=0.28.0",
     "ruff>=0.1.0",
 ]
-all = ["fedlora[peft,privacy,dev]"]
+all = ["chorus[peft,privacy,dev]"]
 
 [project.scripts]
-fedlora = "fedlora.cli.main:cli"
+chorus = "chorus.cli.main:cli"
 
 [project.urls]
-Homepage = "https://github.com/fedlora/fedlora"
-Repository = "https://github.com/fedlora/fedlora"
+Homepage = "https://github.com/chorus/chorus"
+Repository = "https://github.com/chorus/chorus"
 
 [tool.hatch.build.targets.wheel]
-packages = ["fedlora"]
+packages = ["chorus"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

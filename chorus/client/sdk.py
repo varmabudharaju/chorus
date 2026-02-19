@@ -1,4 +1,4 @@
-"""FedLoRA client SDK for submitting deltas and pulling aggregated adapters."""
+"""Chorus client SDK for submitting deltas and pulling aggregated adapters."""
 
 from __future__ import annotations
 
@@ -8,17 +8,17 @@ from pathlib import Path
 import httpx
 from safetensors.torch import save_file, load_file
 
-from fedlora.client.delta import extract_lora_matrices, save_lora_delta
-from fedlora.server.privacy import apply_dp
+from chorus.client.delta import extract_lora_matrices, save_lora_delta
+from chorus.server.privacy import apply_dp
 
-logger = logging.getLogger("fedlora.client")
+logger = logging.getLogger("chorus.client")
 
 
-class FedLoRAClient:
-    """Client for interacting with a FedLoRA aggregation server.
+class ChorusClient:
+    """Client for interacting with a Chorus aggregation server.
 
     Usage:
-        client = FedLoRAClient(server="http://localhost:8080", model_id="my-model")
+        client = ChorusClient(server="http://localhost:8080", model_id="my-model")
         # ... do local LoRA training ...
         client.submit_delta(adapter_path="./my-adapter")
         client.pull_latest(output_path="./updated-adapter")

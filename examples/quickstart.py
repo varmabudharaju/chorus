@@ -1,6 +1,6 @@
-"""FedLoRA Quickstart Example
+"""Chorus Quickstart Example
 
-This demonstrates the basic FedLoRA workflow:
+This demonstrates the basic Chorus workflow:
 1. Start the aggregation server (in a separate terminal)
 2. Multiple clients train LoRA adapters locally
 3. Clients submit their deltas to the server
@@ -8,7 +8,7 @@ This demonstrates the basic FedLoRA workflow:
 5. Clients pull the improved global adapter
 
 Run the server first:
-    fedlora server --model my-model --min-deltas 2
+    chorus server --model my-model --min-deltas 2
 
 Then run this script (simulates 2 clients):
     python examples/quickstart.py
@@ -20,7 +20,7 @@ from pathlib import Path
 import torch
 from safetensors.torch import save_file
 
-from fedlora import FedLoRAClient
+from chorus import ChorusClient
 
 
 SERVER_URL = "http://localhost:8080"
@@ -60,7 +60,7 @@ def main():
         print("\n=== Client 1 ===")
         adapter_1 = simulate_local_training("client_1", tmpdir)
 
-        client_1 = FedLoRAClient(
+        client_1 = ChorusClient(
             server=SERVER_URL,
             model_id=MODEL_ID,
             client_id="client_1",
@@ -72,7 +72,7 @@ def main():
         print("\n=== Client 2 ===")
         adapter_2 = simulate_local_training("client_2", tmpdir)
 
-        client_2 = FedLoRAClient(
+        client_2 = ChorusClient(
             server=SERVER_URL,
             model_id=MODEL_ID,
             client_id="client_2",

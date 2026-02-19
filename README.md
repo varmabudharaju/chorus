@@ -1,13 +1,13 @@
-# FedLoRA — Federated LoRA Adapter Aggregation
+# Chorus — Federated LoRA Adapter Aggregation
 
 Federated fine-tuning of LLMs using LoRA, with **mathematically correct aggregation**.
 
-Standard FedAvg is broken for LoRA because `avg(B*A) ≠ avg(B)*avg(A)`. FedLoRA implements **FedEx-LoRA** (ACL/ICLR 2025), which provides exact federated aggregation of LoRA adapters.
+Standard FedAvg is broken for LoRA because `avg(B*A) ≠ avg(B)*avg(A)`. Chorus implements **FedEx-LoRA** (ACL/ICLR 2025), which provides exact federated aggregation of LoRA adapters.
 
 ## Install
 
 ```bash
-pip install fedlora
+pip install chorus
 ```
 
 ## Quick Start
@@ -15,15 +15,15 @@ pip install fedlora
 ### 1. Start the aggregation server
 
 ```bash
-fedlora server --model meta-llama/Llama-3.2-3B --min-deltas 3
+chorus server --model meta-llama/Llama-3.2-3B --min-deltas 3
 ```
 
 ### 2. Submit LoRA adapters from clients
 
 ```python
-from fedlora import FedLoRAClient
+from chorus import ChorusClient
 
-client = FedLoRAClient(server="http://localhost:8080", model_id="meta-llama/Llama-3.2-3B")
+client = ChorusClient(server="http://localhost:8080", model_id="meta-llama/Llama-3.2-3B")
 
 # After your normal PEFT/LoRA training...
 client.submit_delta(adapter_path="./my-adapter")
@@ -35,18 +35,18 @@ client.pull_latest(output_path="./updated-adapter")
 Or via CLI:
 
 ```bash
-fedlora submit --server http://localhost:8080 --adapter ./my-adapter
-fedlora pull --server http://localhost:8080 --output ./updated-adapter
+chorus submit --server http://localhost:8080 --adapter ./my-adapter
+chorus pull --server http://localhost:8080 --output ./updated-adapter
 ```
 
 ### 3. Run a simulation (no server needed)
 
 ```bash
 # Basic simulation
-fedlora simulate --clients 10 --rounds 5
+chorus simulate --clients 10 --rounds 5
 
 # Compare FedAvg vs FedEx-LoRA
-fedlora simulate --clients 10 --rounds 5 --compare
+chorus simulate --clients 10 --rounds 5 --compare
 ```
 
 ## Why FedEx-LoRA?
@@ -67,11 +67,11 @@ Result: **exact aggregation** with no approximation error.
 
 ## Differential Privacy
 
-FedLoRA supports optional differential privacy at both client and server side:
+Chorus supports optional differential privacy at both client and server side:
 
 ```python
 # Client-side DP (noise added before sending to server)
-client = FedLoRAClient(
+client = ChorusClient(
     server="http://localhost:8080",
     model_id="my-model",
     dp_epsilon=1.0,
@@ -80,7 +80,7 @@ client = FedLoRAClient(
 
 ```bash
 # Server-side DP
-fedlora server --model my-model --dp-epsilon 1.0
+chorus server --model my-model --dp-epsilon 1.0
 ```
 
 ## Architecture
@@ -115,17 +115,17 @@ Client 1                Aggregation Server              Client 2
 ## CLI Commands
 
 ```bash
-fedlora server    # Start aggregation server
-fedlora submit    # Submit a delta
-fedlora pull      # Pull aggregated adapter
-fedlora simulate  # Run local simulation
+chorus server    # Start aggregation server
+chorus submit    # Submit a delta
+chorus pull      # Pull aggregated adapter
+chorus simulate  # Run local simulation
 ```
 
 ## Development
 
 ```bash
-git clone https://github.com/fedlora/fedlora
-cd fedlora
+git clone https://github.com/chorus/chorus
+cd chorus
 pip install -e ".[dev]"
 pytest
 ```

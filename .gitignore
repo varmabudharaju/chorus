@@ -5,6 +5,6 @@ dist/
 build/
 .pytest_cache/
 .ruff_cache/
-fedlora_data/
+chorus_data/
 *.DS_Store
 .env
