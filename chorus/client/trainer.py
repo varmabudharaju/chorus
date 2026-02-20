@@ -64,6 +64,13 @@ class LoRATrainer:
         from peft import LoraConfig, get_peft_model, PeftModel
         from datasets import load_dataset, Dataset
 
+        # Auto-detect bf16 support: disable on MPS (Apple Silicon)
+        use_bf16 = self.bf16
+        if use_bf16 and not torch.cuda.is_available():
+            if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+                logger.warning("bf16 not reliably supported on MPS — falling back to fp32")
+                use_bf16 = False
+
         logger.info(f"Loading base model: {self.base_model}")
         tokenizer = AutoTokenizer.from_pretrained(self.base_model)
         if tokenizer.pad_token is None:
@@ -71,7 +78,7 @@ class LoRATrainer:
 
         model = AutoModelForCausalLM.from_pretrained(
             self.base_model,
-            torch_dtype=torch.bfloat16 if self.bf16 else torch.float32,
+            torch_dtype=torch.bfloat16 if use_bf16 else torch.float32,
             device_map="auto",
         )
 
@@ -105,18 +112,22 @@ class LoRATrainer:
 
         # Tokenize
         def _format_text(example):
-            """Format dataset example into a single text string."""
+            """Format dataset example into a single text string.
+
+            Supports: plain text, Alpaca (instruction/input/output),
+            and Dolly (instruction/context/response) formats.
+            """
             # If the dataset already has a "text" field, use it directly
             if "text" in example and example["text"]:
                 return example["text"]
-            # Alpaca-style: instruction + input + output
+            # Instruction-style: supports both Alpaca and Dolly field names
             parts = []
             if example.get("instruction"):
                 parts.append(example["instruction"])
-            if example.get("input"):
-                parts.append(example["input"])
-            if example.get("output"):
-                parts.append(example["output"])
+            if example.get("input") or example.get("context"):
+                parts.append(example.get("input") or example.get("context"))
+            if example.get("output") or example.get("response"):
+                parts.append(example.get("output") or example.get("response"))
             return "\n".join(parts) if parts else ""
 
         def tokenize(example):
@@ -137,7 +148,7 @@ class LoRATrainer:
             per_device_train_batch_size=self.per_device_batch_size,
             gradient_accumulation_steps=self.gradient_accumulation_steps,
             learning_rate=self.learning_rate,
-            bf16=self.bf16,
+            bf16=use_bf16,
             logging_steps=10,
             save_strategy="no",  # We save manually at the end
             report_to="none",
