@@ -42,8 +42,9 @@ def cli():
 @click.option("--min-deltas", default=2, help="Minimum deltas before aggregation triggers")
 @click.option("--dp-epsilon", type=float, default=None, help="Server-side DP epsilon (disabled if not set)")
 @click.option("--api-key", multiple=True, help="API key(s) for authentication (can specify multiple)")
+@click.option("--base-weights", type=click.Path(exists=True), default=None, help="Path to base model weights (.safetensors)")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose logging")
-def server(model, port, host, data_dir, strategy, min_deltas, dp_epsilon, api_key, verbose):
+def server(model, port, host, data_dir, strategy, min_deltas, dp_epsilon, api_key, base_weights, verbose):
     """Start the Chorus aggregation server."""
     _setup_logging(verbose)
 
@@ -57,6 +58,14 @@ def server(model, port, host, data_dir, strategy, min_deltas, dp_epsilon, api_ke
         dp_epsilon=dp_epsilon,
         api_keys=list(api_key) if api_key else None,
     )
+
+    # Load initial base weights if provided
+    if base_weights:
+        from safetensors.torch import load_file
+        from chorus.server.app import state
+        tensors = load_file(base_weights)
+        state.storage.save_base_weights(model, tensors, meta={"source": base_weights})
+        console.print(f"  Base weights: {base_weights} ({len(tensors)} tensors)")
 
     console.print(f"[bold green]Chorus Server[/bold green]")
     console.print(f"  Model:    {model}")
@@ -79,8 +88,9 @@ def server(model, port, host, data_dir, strategy, min_deltas, dp_epsilon, api_ke
 @click.option("--client-id", default=None, help="Client ID (auto-generated if not set)")
 @click.option("--round-id", type=int, default=None, help="Round ID (uses current if not set)")
 @click.option("--dp-epsilon", type=float, default=None, help="Local DP epsilon")
+@click.option("--dataset-size", type=int, default=None, help="Dataset size for weighted aggregation")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose logging")
-def submit(server_url, adapter, model_id, client_id, round_id, dp_epsilon, verbose):
+def submit(server_url, adapter, model_id, client_id, round_id, dp_epsilon, dataset_size, verbose):
     """Submit a LoRA adapter delta to the server."""
     _setup_logging(verbose)
 
@@ -101,7 +111,7 @@ def submit(server_url, adapter, model_id, client_id, round_id, dp_epsilon, verbo
     )
 
     with client:
-        result = client.submit_delta(adapter_path=adapter, round_id=round_id)
+        result = client.submit_delta(adapter_path=adapter, round_id=round_id, dataset_size=dataset_size)
 
     console.print(f"[bold green]Delta submitted[/bold green]")
     console.print(f"  Round:    {result['round_id']}")
@@ -198,6 +208,64 @@ def simulate(clients, rounds, model, strategy, rank, hidden_dim, dp_epsilon, com
         console.print(result.summary())
 
     console.print("\n[bold green]Simulation complete.[/bold green]")
+
+
+@cli.command()
+@click.option("--server", "server_url", required=True, help="Server URL")
+@click.option("--model", "base_model", required=True, help="HF model ID for training")
+@click.option("--dataset", required=True, help="HF dataset name or local path")
+@click.option("--rounds", default=None, type=int, help="Number of rounds (infinite if not set)")
+@click.option("--output-dir", default="./chorus_adapter", help="Output directory for adapter")
+@click.option("--lora-rank", default=16, help="LoRA rank")
+@click.option("--max-steps", default=-1, help="Max training steps per round (-1 for full epoch)")
+@click.option("--client-id", default=None, help="Client ID")
+@click.option("--dp-epsilon", type=float, default=None, help="Local DP epsilon")
+@click.option("--verbose", "-v", is_flag=True, help="Verbose logging")
+def train(server_url, base_model, dataset, rounds, output_dir, lora_rank, max_steps, client_id, dp_epsilon, verbose):
+    """Run the full federated training loop: train -> submit -> wait -> pull -> repeat."""
+    _setup_logging(verbose)
+
+    from chorus.client.sdk import ChorusClient
+    from chorus.client.trainer import LoRATrainer
+
+    # Get model_id from server
+    import httpx
+    resp = httpx.get(f"{server_url.rstrip('/')}/health")
+    resp.raise_for_status()
+    model_id = resp.json()["model_id"]
+
+    trainer = LoRATrainer(
+        base_model=base_model,
+        dataset=dataset,
+        output_dir=output_dir,
+        lora_rank=lora_rank,
+        max_steps=max_steps,
+    )
+
+    client = ChorusClient(
+        server=server_url,
+        model_id=model_id,
+        client_id=client_id,
+        dp_epsilon=dp_epsilon,
+    )
+
+    console.print(f"[bold green]Chorus Federated Training[/bold green]")
+    console.print(f"  Server:     {server_url}")
+    console.print(f"  Base model: {base_model}")
+    console.print(f"  Dataset:    {dataset}")
+    console.print(f"  Rounds:     {rounds or 'infinite'}")
+    console.print(f"  LoRA rank:  {lora_rank}")
+    console.print()
+
+    def on_round_complete(round_num, result):
+        console.print(f"  [bold yellow]Round {round_num} complete[/bold yellow]")
+
+    with client:
+        client.train_loop(
+            trainer=trainer,
+            num_rounds=rounds,
+            on_round_complete=on_round_complete,
+        )
 
 
 if __name__ == "__main__":

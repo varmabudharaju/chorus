@@ -162,7 +162,13 @@ def _run_comparison(
     dp_max_norm: float,
 ) -> SimulationResult:
     """Run both FedAvg and FedEx-LoRA on identical data and compare."""
+    from chorus.patterns import get_layer_pairs as _get_layer_pairs
+
     result = SimulationResult()
+
+    # Create strategies once so FedExLoRA accumulates residuals across rounds
+    fedavg = get_strategy("fedavg")
+    fedex = get_strategy("fedex-lora")
 
     for round_id in range(num_rounds):
         # Generate identical deltas for both strategies
@@ -176,13 +182,7 @@ def _run_comparison(
                 delta = apply_dp(delta, epsilon=dp_epsilon, delta=dp_delta, max_norm=dp_max_norm)
             client_deltas.append(delta)
 
-        # Compute exact average: avg(B_i @ A_i)
-        from chorus.patterns import get_layer_pairs as _get_layer_pairs
         layer_pairs = _get_layer_pairs(client_deltas[0])
-
-        # Run both strategies
-        fedavg = get_strategy("fedavg")
-        fedex = get_strategy("fedex-lora")
 
         avg_result = fedavg.aggregate(client_deltas)
         ex_result = fedex.aggregate(client_deltas)

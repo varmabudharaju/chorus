@@ -50,6 +50,17 @@ class FedAvg(AggregationStrategy):
         if not client_deltas:
             raise ValueError("No deltas to aggregate")
 
+        # FedAvg requires all clients to have identical tensor shapes
+        ref_shapes = {k: v.shape for k, v in client_deltas[0].items()}
+        for i, delta in enumerate(client_deltas[1:], 1):
+            for k, v in delta.items():
+                if k in ref_shapes and v.shape != ref_shapes[k]:
+                    raise ValueError(
+                        f"FedAvg requires uniform tensor shapes. Client {i} has "
+                        f"{k} shape {v.shape}, expected {ref_shapes[k]}. "
+                        f"Use fedex-lora for heterogeneous LoRA ranks."
+                    )
+
         n = len(client_deltas)
         if weights is None:
             weights = [1.0 / n] * n
@@ -80,18 +91,24 @@ class FedExLoRA(AggregationStrategy):
 
     This implementation:
     1. Computes the exact weighted average of the full-rank updates: sum(w_i * B_i @ A_i)
-    2. Adds any accumulated residual from previous rounds
-    3. Uses truncated SVD to find the optimal rank-r approximation
-    4. Tracks the residual (what couldn't be captured in rank-r)
-       for accumulation across rounds
+    2. Uses truncated SVD to find the optimal rank-r approximation
+    3. Tracks the residual (what couldn't be captured in rank-r)
+       per round, for optional folding into base model weights
 
-    The residual can be periodically folded into the base model weights
-    to make the process exact over multiple rounds.
+    Residuals are stored per-round but NOT automatically injected into
+    subsequent rounds. Each round's aggregation is independent. To recover
+    the lost information, fold residuals into the base model weights
+    between rounds using get_residuals().
     """
 
-    def __init__(self, residuals: dict[str, torch.Tensor] | None = None) -> None:
-        # Accumulated residuals per layer, carried across rounds
+    def __init__(
+        self,
+        residuals: dict[str, torch.Tensor] | None = None,
+        output_rank: int | None = None,
+    ) -> None:
+        # Residuals from the most recent round, available for base-weight folding
         self._residuals: dict[str, torch.Tensor] = dict(residuals) if residuals else {}
+        self._output_rank = output_rank
 
     @property
     def name(self) -> str:
@@ -112,29 +129,35 @@ class FedExLoRA(AggregationStrategy):
             total = sum(weights)
             weights = [w / total for w in weights]
 
-        # Identify LoRA layer pairs from the first client
-        layer_pairs = _get_layer_pairs(client_deltas[0])
+        # Discover LoRA layer pairs from ALL clients (union), so clients
+        # with different target modules are handled correctly.
+        layer_pairs: dict[str, tuple[str, str]] = {}
+        for delta in client_deltas:
+            for layer_name, pair in _get_layer_pairs(delta).items():
+                if layer_name not in layer_pairs:
+                    layer_pairs[layer_name] = pair
 
         result: dict[str, torch.Tensor] = {}
 
         for layer_name, (a_key, b_key) in layer_pairs.items():
-            # Collect A and B matrices from all clients
-            a_matrices = [d[a_key].float() for d in client_deltas]
-            b_matrices = [d[b_key].float() for d in client_deltas]
+            # Collect A and B matrices only from clients that have this layer
+            client_indices = [i for i, d in enumerate(client_deltas) if a_key in d and b_key in d]
+            a_matrices = [client_deltas[i][a_key].float() for i in client_indices]
+            b_matrices = [client_deltas[i][b_key].float() for i in client_indices]
+            layer_weights = [weights[i] for i in client_indices]
 
-            rank = a_matrices[0].shape[0]  # LoRA rank
+            # Re-normalise weights for this layer's subset of clients
+            w_total = sum(layer_weights)
+            layer_weights = [w / w_total for w in layer_weights]
+
+            # Output rank: explicit override, or max across clients (preserves most info)
+            rank = self._output_rank or max(a.shape[0] for a in a_matrices)
 
             # Step 1: Compute the exact weighted average of full-rank updates.
-            # target = sum(w_i * B_i @ A_i) + accumulated_residual
-            # This has rank up to N*r + rank(residual), which exceeds r.
+            # This has rank up to N*r, which exceeds r.
             target = torch.zeros_like(b_matrices[0] @ a_matrices[0])
-            for i in range(n):
-                target += weights[i] * (b_matrices[i] @ a_matrices[i])
-
-            # Add accumulated residual from previous rounds
-            prev_residual = self._residuals.get(layer_name, None)
-            if prev_residual is not None:
-                target = target + prev_residual
+            for i in range(len(client_indices)):
+                target += layer_weights[i] * (b_matrices[i] @ a_matrices[i])
 
             # Step 2: Truncated SVD to find the best rank-r approximation.
             # This is the Eckart-Young-Mirsky theorem: the truncated SVD
@@ -148,11 +171,12 @@ class FedExLoRA(AggregationStrategy):
             new_a = Vt[:rank, :].contiguous()                            # (r, dim)
 
             # Step 3: Track residual — what the rank-r approximation couldn't capture.
-            # This is accumulated across rounds and can be folded into base weights.
+            # Available via get_residuals() for folding into base model weights.
             approximation = new_b @ new_a
             self._residuals[layer_name] = target - approximation
 
-            orig_dtype = client_deltas[0][a_key].dtype
+            # Use dtype from the first client that has this layer
+            orig_dtype = client_deltas[client_indices[0]][a_key].dtype
             result[a_key] = new_a.to(orig_dtype)
             result[b_key] = new_b.to(orig_dtype)
 
@@ -162,13 +186,23 @@ class FedExLoRA(AggregationStrategy):
             lora_keys.add(a_key)
             lora_keys.add(b_key)
 
-        for key in client_deltas[0]:
-            if key not in lora_keys:
-                stacked = torch.stack([d[key].float() for d in client_deltas])
-                w = torch.tensor(weights, dtype=torch.float32).reshape(
-                    -1, *([1] * (stacked.dim() - 1))
-                )
-                result[key] = (stacked * w).sum(dim=0).to(client_deltas[0][key].dtype)
+        # Discover all non-LoRA keys across all clients (union)
+        all_non_lora_keys: set[str] = set()
+        for delta in client_deltas:
+            all_non_lora_keys.update(k for k in delta if k not in lora_keys)
+
+        for key in all_non_lora_keys:
+            # Only average across clients that have this key
+            indices = [i for i, d in enumerate(client_deltas) if key in d]
+            key_weights = [weights[i] for i in indices]
+            w_total = sum(key_weights)
+            key_weights = [w / w_total for w in key_weights]
+
+            stacked = torch.stack([client_deltas[i][key].float() for i in indices])
+            w = torch.tensor(key_weights, dtype=torch.float32).reshape(
+                -1, *([1] * (stacked.dim() - 1))
+            )
+            result[key] = (stacked * w).sum(dim=0).to(client_deltas[indices[0]][key].dtype)
 
         return result
 

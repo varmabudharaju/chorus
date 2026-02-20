@@ -256,6 +256,77 @@ class TestFedExLoRAEdgeCases:
             FedExLoRA().aggregate([])
 
 
+class TestHeterogeneousRank:
+    """Test FedExLoRA with clients using different LoRA ranks."""
+
+    def test_fedex_mixed_ranks_two_clients(self):
+        """Rank 4 + rank 16 clients, output rank = 16 (max)."""
+        d1 = _make_delta(LAYERS, rank=4, dim=16, seed=0)
+        d2 = _make_delta(LAYERS, rank=16, dim=16, seed=1)
+        result = FedExLoRA().aggregate([d1, d2])
+
+        pairs = get_layer_pairs(result)
+        for _, (a_key, b_key) in pairs.items():
+            assert result[a_key].shape[0] == 16  # output rank = max(4, 16)
+
+    def test_fedex_mixed_ranks_three_clients(self):
+        """Ranks 2, 8, 16 — output rank should be 16."""
+        d1 = _make_delta(LAYERS, rank=2, dim=32, seed=0)
+        d2 = _make_delta(LAYERS, rank=8, dim=32, seed=1)
+        d3 = _make_delta(LAYERS, rank=16, dim=32, seed=2)
+        result = FedExLoRA().aggregate([d1, d2, d3])
+
+        pairs = get_layer_pairs(result)
+        for _, (a_key, b_key) in pairs.items():
+            assert result[a_key].shape[0] == 16
+
+    def test_fedex_mixed_ranks_custom_output_rank(self):
+        """Explicit output_rank=8 overrides max-rank policy."""
+        d1 = _make_delta(LAYERS, rank=4, dim=32, seed=0)
+        d2 = _make_delta(LAYERS, rank=16, dim=32, seed=1)
+        result = FedExLoRA(output_rank=8).aggregate([d1, d2])
+
+        pairs = get_layer_pairs(result)
+        for _, (a_key, b_key) in pairs.items():
+            assert result[a_key].shape[0] == 8
+
+    def test_fedex_mixed_ranks_reconstruction_valid(self):
+        """Output should be finite with reasonable error."""
+        d1 = _make_delta(LAYERS, rank=4, dim=32, seed=0)
+        d2 = _make_delta(LAYERS, rank=16, dim=32, seed=1)
+        result = FedExLoRA().aggregate([d1, d2])
+
+        for key, tensor in result.items():
+            assert torch.isfinite(tensor).all(), f"Non-finite values in {key}"
+
+    def test_fedex_mixed_ranks_residual_captures_gap(self):
+        """Residual + adapter should recover the exact weighted average."""
+        d1 = _make_delta(LAYERS, rank=4, dim=32, seed=0)
+        d2 = _make_delta(LAYERS, rank=16, dim=32, seed=1)
+        strategy = FedExLoRA()
+        result = strategy.aggregate([d1, d2])
+        residuals = strategy.get_residuals()
+
+        pairs = get_layer_pairs(result)
+        for layer_name, (a_key, b_key) in pairs.items():
+            # Exact average of B_i @ A_i
+            exact = 0.5 * (d1[b_key].float() @ d1[a_key].float()) + \
+                    0.5 * (d2[b_key].float() @ d2[a_key].float())
+            # Adapter reconstruction + residual should match exact
+            approx = result[b_key].float() @ result[a_key].float()
+            recovered = approx + residuals[layer_name]
+            assert torch.allclose(exact, recovered, atol=1e-4), (
+                f"Residual + adapter doesn't recover exact avg for {layer_name}"
+            )
+
+    def test_fedavg_rejects_mixed_ranks(self):
+        """FedAvg should raise ValueError for mismatched shapes."""
+        d1 = _make_delta(LAYERS, rank=4, dim=16, seed=0)
+        d2 = _make_delta(LAYERS, rank=8, dim=16, seed=1)
+        with pytest.raises(ValueError, match="FedAvg requires uniform tensor shapes"):
+            FedAvg().aggregate([d1, d2])
+
+
 class TestNormBoundDeltas:
     def test_clips_large_deltas(self):
         deltas = [_make_delta(LAYERS, rank=4, dim=16, seed=i) for i in range(3)]

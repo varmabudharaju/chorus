@@ -80,6 +80,18 @@ class DeltaStorage:
         client_ids = self.list_deltas(model_id, round_id)
         return [self.load_delta(model_id, round_id, cid) for cid in client_ids]
 
+    def load_delta_metadata(self, model_id: str, round_id: int, client_id: str) -> dict:
+        """Load metadata for a single client's delta."""
+        meta_path = self._deltas_dir(model_id, round_id) / f"{client_id}.json"
+        if not meta_path.exists():
+            return {}
+        return json.loads(meta_path.read_text())
+
+    def load_all_delta_metadata(self, model_id: str, round_id: int) -> list[dict]:
+        """Load metadata for all deltas in a round."""
+        client_ids = self.list_deltas(model_id, round_id)
+        return [self.load_delta_metadata(model_id, round_id, cid) for cid in client_ids]
+
     def save_aggregated(self, model_id: str, round_id: int, tensors: dict) -> Path:
         """Save the aggregated result for a round."""
         round_dir = self._round_dir(model_id, round_id)
@@ -165,6 +177,39 @@ class DeltaStorage:
     def is_round_accepting(self, model_id: str, round_id: int) -> bool:
         """Check if a round is still accepting submissions."""
         return self.get_round_state(model_id, round_id) == RoundState.OPEN
+
+    # --- Base weight management ---
+
+    def _base_weights_path(self, model_id: str) -> Path:
+        return self._model_dir(model_id) / "base_weights.safetensors"
+
+    def _base_weights_meta_path(self, model_id: str) -> Path:
+        return self._model_dir(model_id) / "base_weights_meta.json"
+
+    def save_base_weights(self, model_id: str, tensors: dict[str, torch.Tensor], meta: dict | None = None) -> Path:
+        """Save base model weights for a model."""
+        model_dir = self._model_dir(model_id)
+        model_dir.mkdir(parents=True, exist_ok=True)
+        path = self._base_weights_path(model_id)
+        save_file(tensors, str(path))
+        meta_path = self._base_weights_meta_path(model_id)
+        meta_data = {"timestamp": time.time(), **(meta or {})}
+        meta_path.write_text(json.dumps(meta_data, indent=2))
+        return path
+
+    def load_base_weights(self, model_id: str) -> dict[str, torch.Tensor] | None:
+        """Load base model weights. Returns None if not set."""
+        path = self._base_weights_path(model_id)
+        if not path.exists():
+            return None
+        return load_file(str(path))
+
+    def load_base_weights_meta(self, model_id: str) -> dict | None:
+        """Load base weights metadata."""
+        meta_path = self._base_weights_meta_path(model_id)
+        if not meta_path.exists():
+            return None
+        return json.loads(meta_path.read_text())
 
     # --- Residual persistence ---
 
