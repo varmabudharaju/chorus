@@ -8,3 +8,15 @@ build/
 chorus_data/
 *.DS_Store
 .env
+
+# Model artifacts — never commit these
+*.safetensors
+*.bin
+*.pt
+*.ckpt
+tokenizer.json
+tokenizer_config.json
+chorus_adapter*/
+adapters/
+checkpoints/
+wandb/
