@@ -40,6 +40,38 @@ class TestSimulation:
         assert "Simulation completed" in summary
         assert "1 rounds" in summary
 
+    def test_comparison_accumulates_across_rounds(self):
+        """Verify that _run_comparison reuses strategies across rounds.
+
+        The FedExLoRA strategy should accumulate residuals across rounds,
+        meaning the strategy object persists (not recreated each round).
+        """
+        from unittest.mock import patch
+        from chorus.server.aggregation import FedExLoRA
+
+        created_instances: list[FedExLoRA] = []
+        original_get_strategy = __import__(
+            "chorus.server.aggregation", fromlist=["get_strategy"]
+        ).get_strategy
+
+        def tracking_get_strategy(name):
+            strategy = original_get_strategy(name)
+            if isinstance(strategy, FedExLoRA):
+                created_instances.append(strategy)
+            return strategy
+
+        with patch("chorus.simulate.runner.get_strategy", side_effect=tracking_get_strategy):
+            result = run_simulation(
+                num_clients=3, num_rounds=3, compare_strategies=True,
+            )
+
+        # Should create exactly one FedExLoRA instance (not one per round)
+        assert len(created_instances) == 1
+        # The single instance should have residuals (accumulated across 3 rounds)
+        assert len(created_instances[0].get_residuals()) > 0
+        # All 3 rounds should be recorded
+        assert len(result.rounds) == 3
+
 
 class TestFullRoundTrip:
     """Test the full flow: submit deltas via HTTP, trigger aggregation, pull result."""

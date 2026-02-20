@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
+from typing import Callable, Generator
 
 import httpx
 from safetensors.torch import save_file, load_file
@@ -52,6 +54,7 @@ class ChorusClient:
         self,
         adapter_path: str | Path,
         round_id: int | None = None,
+        dataset_size: int | None = None,
     ) -> dict:
         """Extract LoRA delta from an adapter and submit to the server.
 
@@ -80,12 +83,13 @@ class ChorusClient:
             status = self.status()
             round_id = status["current_round"]
 
-        return self._submit_tensors(tensors, round_id)
+        return self._submit_tensors(tensors, round_id, dataset_size=dataset_size)
 
     def submit_tensors(
         self,
         tensors: dict,
         round_id: int | None = None,
+        dataset_size: int | None = None,
     ) -> dict:
         """Submit raw tensors (already extracted) to the server.
 
@@ -94,9 +98,9 @@ class ChorusClient:
         if round_id is None:
             status = self.status()
             round_id = status["current_round"]
-        return self._submit_tensors(tensors, round_id)
+        return self._submit_tensors(tensors, round_id, dataset_size=dataset_size)
 
-    def _submit_tensors(self, tensors: dict, round_id: int) -> dict:
+    def _submit_tensors(self, tensors: dict, round_id: int, dataset_size: int | None = None) -> dict:
         """Internal: serialize and upload tensors."""
         import tempfile
 
@@ -107,6 +111,8 @@ class ChorusClient:
             params = {"model_id": self.model_id}
             if self.client_id:
                 params["client_id"] = self.client_id
+            if dataset_size is not None:
+                params["dataset_size"] = dataset_size
 
             with open(tmp.name, "rb") as f:
                 resp = self._http.post(
@@ -172,6 +178,74 @@ class ChorusClient:
         output_path.write_bytes(resp.content)
         logger.info(f"Pulled round {round_id} aggregated adapter to {output_path}")
         return output_path
+
+    def train_loop(
+        self,
+        trainer: "LoRATrainer",
+        num_rounds: int | None = None,
+        on_round_complete: Callable | None = None,
+    ):
+        """Run the complete federated training loop.
+
+        1. Train locally
+        2. Submit delta to server
+        3. Wait for aggregation via WebSocket
+        4. Pull updated adapter
+        5. Repeat
+
+        Args:
+            trainer: A LoRATrainer instance configured for local training.
+            num_rounds: Number of rounds (None = infinite).
+            on_round_complete: Optional callback(rounds_completed, result).
+        """
+        rounds_completed = 0
+        adapter_path = trainer.adapter_path
+
+        while num_rounds is None or rounds_completed < num_rounds:
+            trainer.adapter_path = adapter_path
+
+            logger.info(f"[Round {rounds_completed}] Training locally...")
+            adapter_path = trainer.train()
+
+            logger.info(f"[Round {rounds_completed}] Submitting delta...")
+            result = self.submit_delta(
+                adapter_path=adapter_path,
+                dataset_size=trainer.get_dataset_size(),
+            )
+
+            if not result["aggregated"]:
+                logger.info("Waiting for aggregation...")
+                for event in self.listen():
+                    if event.get("event") == "round_complete":
+                        break
+
+            logger.info("Pulling updated adapter...")
+            pull_dir = trainer.output_dir / "aggregated"
+            adapter_path = self.pull_latest(output_path=pull_dir)
+
+            rounds_completed += 1
+            if on_round_complete:
+                on_round_complete(rounds_completed, result)
+
+    def listen(self, on_round_complete: Callable | None = None) -> Generator[dict, None, None]:
+        """Connect via WebSocket and listen for server events.
+
+        Args:
+            on_round_complete: Optional callback(event_dict) called when a round completes.
+
+        Yields:
+            Event dicts as they arrive.
+        """
+        import websockets.sync.client as ws_sync
+
+        ws_url = self.server.replace("http://", "ws://").replace("https://", "wss://")
+        cid = self.client_id or "listener"
+        with ws_sync.connect(f"{ws_url}/ws/{cid}") as ws:
+            while True:
+                msg = json.loads(ws.recv())
+                if on_round_complete and msg.get("event") == "round_complete":
+                    on_round_complete(msg)
+                yield msg
 
     def close(self):
         self._http.close()
