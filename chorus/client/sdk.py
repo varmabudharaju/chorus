@@ -130,13 +130,16 @@ class ChorusClient:
         )
         return result
 
-    def pull_latest(self, output_path: str | Path) -> Path:
+    def pull_latest(self, output_path: str | Path, adapter_config: dict | None = None) -> Path:
         """Pull the latest aggregated adapter from the server.
 
         Args:
             output_path: Where to save the aggregated adapter.
                 Can be a directory (saves adapter_model.safetensors inside)
                 or a .safetensors file path.
+            adapter_config: Optional PEFT adapter_config.json contents to write
+                alongside the safetensors file. Required for PeftModel.from_pretrained()
+                to load the adapter in subsequent rounds.
 
         Returns:
             Path to the saved file.
@@ -156,10 +159,16 @@ class ChorusClient:
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
         output_path.write_bytes(resp.content)
+
+        if adapter_config is not None:
+            config_path = output_path.parent / "adapter_config.json"
+            config_path.write_text(json.dumps(adapter_config, indent=2))
+            logger.info(f"Wrote adapter_config.json to {config_path}")
+
         logger.info(f"Pulled latest aggregated adapter to {output_path}")
         return output_path
 
-    def pull_round(self, round_id: int, output_path: str | Path) -> Path:
+    def pull_round(self, round_id: int, output_path: str | Path, adapter_config: dict | None = None) -> Path:
         """Pull the aggregated adapter for a specific round."""
         resp = self._http.get(f"/models/{self.model_id}/rounds/{round_id}")
         if resp.status_code == 404:
@@ -176,6 +185,12 @@ class ChorusClient:
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
         output_path.write_bytes(resp.content)
+
+        if adapter_config is not None:
+            config_path = output_path.parent / "adapter_config.json"
+            config_path.write_text(json.dumps(adapter_config, indent=2))
+            logger.info(f"Wrote adapter_config.json to {config_path}")
+
         logger.info(f"Pulled round {round_id} aggregated adapter to {output_path}")
         return output_path
 
