@@ -2,7 +2,7 @@
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![PyPI version](https://img.shields.io/pypi/v/chorus.svg)](https://pypi.org/project/chorus/)
+[![PyPI version](https://img.shields.io/pypi/v/chorus-fl.svg)](https://pypi.org/project/chorus-fl/)
 
 **Federated LoRA fine-tuning with mathematically exact aggregation.**
 
@@ -27,20 +27,20 @@ Client 1 (private data)          Aggregation Server           Client 2 (private 
 ## Installation
 
 ```bash
-pip install chorus
+pip install chorus-fl
 ```
 
 With optional dependencies:
 
 ```bash
 # For local LoRA training (PEFT + Transformers)
-pip install "chorus[peft]"
+pip install "chorus-fl[peft]"
 
 # For differential privacy
-pip install "chorus[privacy]"
+pip install "chorus-fl[privacy]"
 
 # Everything
-pip install "chorus[all]"
+pip install "chorus-fl[all]"
 ```
 
 From source:

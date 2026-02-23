@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "chorus"
+name = "chorus-fl"
 version = "0.1.0"
 description = "Federated LoRA adapter aggregation framework — exact aggregation with FedEx-LoRA"
 readme = "README.md"
@@ -45,7 +45,7 @@ dev = [
     "ruff>=0.1.0",
     "build",
 ]
-all = ["chorus[peft,privacy,dev]"]
+all = ["chorus-fl[peft,privacy,dev]"]
 
 [project.scripts]
 chorus = "chorus.cli.main:cli"
