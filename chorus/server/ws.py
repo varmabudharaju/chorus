@@ -21,6 +21,14 @@ class ConnectionManager:
     async def connect(self, client_id: str, ws: WebSocket):
         await ws.accept()
         async with self._lock:
+            # Close existing connection if this client_id is already connected
+            existing = self._connections.get(client_id)
+            if existing is not None:
+                try:
+                    await existing.close(code=4001, reason="Replaced by new connection")
+                except Exception:
+                    pass  # Already closed
+                logger.warning(f"WebSocket client {client_id} replaced existing connection")
             self._connections[client_id] = ws
         logger.info(f"WebSocket connected: {client_id} ({len(self._connections)} total)")
 
@@ -41,6 +49,7 @@ class ConnectionManager:
                     dead.append(cid)
             for cid in dead:
                 self._connections.pop(cid, None)
+                logger.warning(f"Client {cid} disconnected (failed to send broadcast)")
 
     @property
     def connected_count(self) -> int:

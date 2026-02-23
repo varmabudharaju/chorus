@@ -1,13 +1,20 @@
-"""Chorus CLI — server, submit, pull, simulate commands."""
+"""Chorus CLI — server, submit, pull, simulate, train, status, export commands."""
 
 from __future__ import annotations
 
+import functools
 import logging
 import sys
 
 import click
 from rich.console import Console
 from rich.table import Table
+
+from chorus.exceptions import (
+    AggregationPendingError,
+    ChorusError,
+    ServerUnreachableError,
+)
 
 console = Console()
 
@@ -19,6 +26,30 @@ def _setup_logging(verbose: bool) -> None:
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
         datefmt="%H:%M:%S",
     )
+
+
+def handle_errors(f):
+    """Decorator that catches Chorus exceptions and prints clean error messages."""
+
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        try:
+            return f(*args, **kwargs)
+        except ServerUnreachableError as exc:
+            console.print(f"[red]Error:[/red] {exc}")
+            console.print("[dim]Is the Chorus server running?[/dim]")
+            sys.exit(1)
+        except AggregationPendingError as exc:
+            console.print(f"[yellow]Warning:[/yellow] {exc}")
+            sys.exit(1)
+        except ChorusError as exc:
+            console.print(f"[red]Error:[/red] {exc}")
+            sys.exit(1)
+        except KeyboardInterrupt:
+            console.print("\n[yellow]Interrupted.[/yellow]")
+            sys.exit(130)
+
+    return wrapper
 
 
 @click.group()
@@ -43,8 +74,12 @@ def cli():
 @click.option("--dp-epsilon", type=float, default=None, help="Server-side DP epsilon (disabled if not set)")
 @click.option("--api-key", multiple=True, help="API key(s) for authentication (can specify multiple)")
 @click.option("--base-weights", type=click.Path(exists=True), default=None, help="Path to base model weights (.safetensors)")
+@click.option("--norm-bound", type=float, default=None, help="Max L2 norm for Byzantine defense (disabled if not set)")
+@click.option("--outlier-threshold", type=float, default=None, help="Z-score threshold for outlier detection (disabled if not set)")
+@click.option("--rate-limit", type=int, default=0, help="Max requests per minute per IP (0 = disabled)")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose logging")
-def server(model, port, host, data_dir, strategy, min_deltas, dp_epsilon, api_key, base_weights, verbose):
+@handle_errors
+def server(model, port, host, data_dir, strategy, min_deltas, dp_epsilon, api_key, base_weights, norm_bound, outlier_threshold, rate_limit, verbose):
     """Start the Chorus aggregation server."""
     _setup_logging(verbose)
 
@@ -57,6 +92,9 @@ def server(model, port, host, data_dir, strategy, min_deltas, dp_epsilon, api_ke
         min_deltas=min_deltas,
         dp_epsilon=dp_epsilon,
         api_keys=list(api_key) if api_key else None,
+        norm_bound=norm_bound,
+        outlier_threshold=outlier_threshold,
+        rate_limit=rate_limit,
     )
 
     # Load initial base weights if provided
@@ -89,8 +127,10 @@ def server(model, port, host, data_dir, strategy, min_deltas, dp_epsilon, api_ke
 @click.option("--round-id", type=int, default=None, help="Round ID (uses current if not set)")
 @click.option("--dp-epsilon", type=float, default=None, help="Local DP epsilon")
 @click.option("--dataset-size", type=int, default=None, help="Dataset size for weighted aggregation")
+@click.option("--api-key", default=None, help="API key for server authentication")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose logging")
-def submit(server_url, adapter, model_id, client_id, round_id, dp_epsilon, dataset_size, verbose):
+@handle_errors
+def submit(server_url, adapter, model_id, client_id, round_id, dp_epsilon, dataset_size, api_key, verbose):
     """Submit a LoRA adapter delta to the server."""
     _setup_logging(verbose)
 
@@ -99,7 +139,8 @@ def submit(server_url, adapter, model_id, client_id, round_id, dp_epsilon, datas
     # Get model_id from server if not provided
     if model_id is None:
         import httpx
-        resp = httpx.get(f"{server_url.rstrip('/')}/health")
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        resp = httpx.get(f"{server_url.rstrip('/')}/health", headers=headers)
         resp.raise_for_status()
         model_id = resp.json()["model_id"]
 
@@ -107,6 +148,7 @@ def submit(server_url, adapter, model_id, client_id, round_id, dp_epsilon, datas
         server=server_url,
         model_id=model_id,
         client_id=client_id,
+        api_key=api_key,
         dp_epsilon=dp_epsilon,
     )
 
@@ -126,8 +168,10 @@ def submit(server_url, adapter, model_id, client_id, round_id, dp_epsilon, datas
 @click.option("--output", required=True, type=click.Path(), help="Output path")
 @click.option("--model-id", default=None, help="Model ID (uses server default if not set)")
 @click.option("--round-id", type=int, default=None, help="Specific round (latest if not set)")
+@click.option("--api-key", default=None, help="API key for server authentication")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose logging")
-def pull(server_url, output, model_id, round_id, verbose):
+@handle_errors
+def pull(server_url, output, model_id, round_id, api_key, verbose):
     """Pull the latest aggregated adapter from the server."""
     _setup_logging(verbose)
 
@@ -135,11 +179,12 @@ def pull(server_url, output, model_id, round_id, verbose):
 
     if model_id is None:
         import httpx
-        resp = httpx.get(f"{server_url.rstrip('/')}/health")
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        resp = httpx.get(f"{server_url.rstrip('/')}/health", headers=headers)
         resp.raise_for_status()
         model_id = resp.json()["model_id"]
 
-    client = ChorusClient(server=server_url, model_id=model_id)
+    client = ChorusClient(server=server_url, model_id=model_id, api_key=api_key)
 
     with client:
         if round_id is not None:
@@ -165,6 +210,7 @@ def pull(server_url, output, model_id, round_id, verbose):
 @click.option("--dp-epsilon", type=float, default=None, help="DP epsilon per client")
 @click.option("--compare", is_flag=True, help="Compare FedAvg vs FedEx-LoRA")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose logging")
+@handle_errors
 def simulate(clients, rounds, model, strategy, rank, hidden_dim, dp_epsilon, compare, verbose):
     """Run a simulated federation (for testing/demos)."""
     _setup_logging(verbose)
@@ -220,8 +266,10 @@ def simulate(clients, rounds, model, strategy, rank, hidden_dim, dp_epsilon, com
 @click.option("--max-steps", default=-1, help="Max training steps per round (-1 for full epoch)")
 @click.option("--client-id", default=None, help="Client ID")
 @click.option("--dp-epsilon", type=float, default=None, help="Local DP epsilon")
+@click.option("--api-key", default=None, help="API key for server authentication")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose logging")
-def train(server_url, base_model, dataset, rounds, output_dir, lora_rank, max_steps, client_id, dp_epsilon, verbose):
+@handle_errors
+def train(server_url, base_model, dataset, rounds, output_dir, lora_rank, max_steps, client_id, dp_epsilon, api_key, verbose):
     """Run the full federated training loop: train -> submit -> wait -> pull -> repeat."""
     _setup_logging(verbose)
 
@@ -230,7 +278,8 @@ def train(server_url, base_model, dataset, rounds, output_dir, lora_rank, max_st
 
     # Get model_id from server
     import httpx
-    resp = httpx.get(f"{server_url.rstrip('/')}/health")
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    resp = httpx.get(f"{server_url.rstrip('/')}/health", headers=headers)
     resp.raise_for_status()
     model_id = resp.json()["model_id"]
 
@@ -246,6 +295,7 @@ def train(server_url, base_model, dataset, rounds, output_dir, lora_rank, max_st
         server=server_url,
         model_id=model_id,
         client_id=client_id,
+        api_key=api_key,
         dp_epsilon=dp_epsilon,
     )
 
@@ -266,6 +316,100 @@ def train(server_url, base_model, dataset, rounds, output_dir, lora_rank, max_st
             num_rounds=rounds,
             on_round_complete=on_round_complete,
         )
+
+
+@cli.command()
+@click.option("--server", "server_url", required=True, help="Server URL")
+@click.option("--api-key", default=None, help="API key for server authentication")
+@click.option("--verbose", "-v", is_flag=True, help="Verbose logging")
+@handle_errors
+def status(server_url, api_key, verbose):
+    """Show the current status of a Chorus server."""
+    _setup_logging(verbose)
+
+    import httpx
+
+    base_url = server_url.rstrip("/")
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+
+    # Fetch health
+    try:
+        health_resp = httpx.get(f"{base_url}/health", timeout=10)
+        health_resp.raise_for_status()
+    except httpx.ConnectError:
+        raise ServerUnreachableError(f"Cannot connect to Chorus server at {base_url}")
+    except httpx.TimeoutException:
+        raise ServerUnreachableError(f"Request to {base_url} timed out")
+
+    health = health_resp.json()
+    model_id = health["model_id"]
+
+    # Fetch model status
+    try:
+        status_resp = httpx.get(f"{base_url}/models/{model_id}/status", timeout=10, headers=headers)
+        status_resp.raise_for_status()
+        model_status = status_resp.json()
+    except Exception:
+        model_status = None
+
+    console.print(f"[bold green]Chorus Server:[/bold green] {base_url}")
+    console.print(f"  Model:     {health['model_id']}")
+    console.print(f"  Strategy:  {health['strategy']}")
+    console.print(f"  Clients:   {health['ws_clients']} connected")
+
+    if model_status:
+        round_state = model_status.get("round_state", "unknown").upper()
+        console.print(f"  Round:     {model_status['current_round']} ({round_state})")
+        console.print(f"  Deltas:    {model_status['deltas_submitted']} / {model_status['min_deltas']} received")
+        latest = model_status.get("latest_aggregated_round")
+        console.print(f"  Last agg:  {'Round ' + str(latest) if latest is not None else 'none'}")
+
+
+@cli.command(name="export")
+@click.option("--server", "server_url", required=True, help="Server URL")
+@click.option("--model", "base_model", required=True, help="HuggingFace model ID (for base weights)")
+@click.option("--output", required=True, type=click.Path(), help="Output directory for merged model")
+@click.option("--round-id", type=int, default=None, help="Specific round (latest if not set)")
+@click.option("--api-key", default=None, help="API key for server authentication")
+@click.option("--verbose", "-v", is_flag=True, help="Verbose logging")
+@handle_errors
+def export_cmd(server_url, base_model, output, round_id, api_key, verbose):
+    """Export a merged model (base + adapter) ready for deployment."""
+    _setup_logging(verbose)
+
+    from chorus.client.sdk import ChorusClient
+
+    import httpx
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    try:
+        resp = httpx.get(f"{server_url.rstrip('/')}/health", timeout=10, headers=headers)
+        resp.raise_for_status()
+    except httpx.ConnectError:
+        raise ServerUnreachableError(f"Cannot connect to Chorus server at {server_url}")
+    except httpx.TimeoutException:
+        raise ServerUnreachableError(f"Request to {server_url} timed out")
+
+    model_id = resp.json()["model_id"]
+
+    client = ChorusClient(server=server_url, model_id=model_id, api_key=api_key)
+
+    console.print(f"[bold green]Exporting merged model...[/bold green]")
+    console.print(f"  Server:     {server_url}")
+    console.print(f"  Base model: {base_model}")
+    console.print(f"  Output:     {output}")
+    if round_id is not None:
+        console.print(f"  Round:      {round_id}")
+    console.print()
+
+    with client:
+        output_dir = client.export_model(
+            base_model=base_model,
+            output_dir=output,
+            round_id=round_id,
+        )
+
+    console.print(f"[bold green]Model exported to:[/bold green] {output_dir}")
+    console.print(f"[dim]Load with: AutoModelForCausalLM.from_pretrained('{output_dir}')[/dim]")
 
 
 if __name__ == "__main__":

@@ -3,22 +3,54 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
+import os
+import time
 import uuid
+from collections import defaultdict
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import torch
-from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Depends, Header, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Request, UploadFile, File, Depends, Header, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from safetensors.torch import load as safetensors_load, save_file
+from starlette.background import BackgroundTask
 
+from chorus.exceptions import DuplicateClientError
 from chorus.server.aggregation import AggregationStrategy, FedExLoRA, get_strategy
 from chorus.server.privacy import apply_dp
 from chorus.server.storage import DeltaStorage, RoundState
 from chorus.server.ws import ConnectionManager
 
 logger = logging.getLogger("chorus.server")
+
+
+# --- Rate Limiter ---
+
+
+class RateLimiter:
+    """Simple in-memory per-IP rate limiter."""
+
+    def __init__(self, requests_per_minute: int = 60):
+        self.requests_per_minute = requests_per_minute
+        self._requests: dict[str, list[float]] = defaultdict(list)
+
+    def is_allowed(self, client_ip: str) -> bool:
+        if self.requests_per_minute <= 0:
+            return True
+        now = time.time()
+        window_start = now - 60
+        reqs = self._requests[client_ip]
+        self._requests[client_ip] = [t for t in reqs if t > window_start]
+        if len(self._requests[client_ip]) >= self.requests_per_minute:
+            return False
+        self._requests[client_ip].append(now)
+        return True
+
+
+# --- Server State ---
 
 
 class ServerState:
@@ -34,12 +66,20 @@ class ServerState:
     api_keys: set[str]  # empty set = no auth required
     ws_manager: ConnectionManager
     _aggregation_lock: asyncio.Lock
+    max_upload_bytes: int
+    norm_bound: float | None
+    outlier_threshold: float | None
+    rate_limiter: RateLimiter | None
 
 
 state = ServerState()
 state.api_keys = set()
 state.ws_manager = ConnectionManager()
 state._aggregation_lock = asyncio.Lock()
+state.max_upload_bytes = 500 * 1024 * 1024
+state.norm_bound = None
+state.outlier_threshold = None
+state.rate_limiter = None
 
 
 @asynccontextmanager
@@ -50,6 +90,12 @@ async def lifespan(app: FastAPI):
         if residuals:
             state.strategy._residuals = residuals
             logger.info(f"Restored {len(residuals)} residual layers from disk")
+
+    # Recover rounds stuck in AGGREGATING state (from a previous crash)
+    stuck_rounds = state.storage.find_stuck_rounds(state.model_id)
+    for rid in stuck_rounds:
+        state.storage.set_round_state(state.model_id, rid, RoundState.OPEN)
+        logger.warning(f"Recovered stuck round {rid}: AGGREGATING -> OPEN")
 
     logger.info(
         f"Chorus server started — model={state.model_id}, "
@@ -80,6 +126,10 @@ def configure(
     dp_delta: float = 1e-5,
     dp_max_norm: float = 1.0,
     api_keys: list[str] | None = None,
+    max_upload_bytes: int = 500 * 1024 * 1024,
+    norm_bound: float | None = None,
+    outlier_threshold: float | None = None,
+    rate_limit: int = 0,
 ) -> FastAPI:
     """Configure the server before starting."""
     state.storage = DeltaStorage(data_dir)
@@ -92,6 +142,10 @@ def configure(
     state.api_keys = set(api_keys) if api_keys else set()
     state.ws_manager = ConnectionManager()
     state._aggregation_lock = asyncio.Lock()
+    state.max_upload_bytes = max_upload_bytes
+    state.norm_bound = norm_bound
+    state.outlier_threshold = outlier_threshold
+    state.rate_limiter = RateLimiter(rate_limit) if rate_limit > 0 else None
     return app
 
 
@@ -108,8 +162,40 @@ async def require_auth(authorization: str | None = Header(default=None)):
     token = authorization
     if token.startswith("Bearer "):
         token = token[7:]
-    if token not in state.api_keys:
+    if not any(hmac.compare_digest(token, key) for key in state.api_keys):
         raise HTTPException(status_code=403, detail="Invalid API key")
+
+
+# --- Rate Limiting Dependency ---
+
+
+async def check_rate_limit(request: Request):
+    """Dependency: enforce per-IP rate limiting if configured."""
+    if state.rate_limiter is not None:
+        client_ip = request.client.host if request.client else "unknown"
+        if not state.rate_limiter.is_allowed(client_ip):
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+
+# --- Upload Size Limit ---
+
+
+async def _read_upload_limited(file: UploadFile, max_bytes: int) -> bytes:
+    """Read uploaded file with size limit."""
+    chunks = []
+    total = 0
+    while True:
+        chunk = await file.read(1024 * 1024)  # 1MB chunks
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Upload exceeds maximum size of {max_bytes} bytes",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 # --- API Endpoints ---
@@ -143,7 +229,7 @@ async def model_status(model_id: str):
     }
 
 
-@app.post("/rounds/{round_id}/deltas", dependencies=[Depends(require_auth)])
+@app.post("/rounds/{round_id}/deltas", dependencies=[Depends(require_auth), Depends(check_rate_limit)])
 async def submit_delta(
     round_id: int,
     file: UploadFile = File(...),
@@ -159,28 +245,36 @@ async def submit_delta(
     mid = model_id or state.model_id
     cid = client_id or str(uuid.uuid4())[:8]
 
+    # Validate dataset_size
+    if dataset_size is not None and dataset_size <= 0:
+        raise HTTPException(status_code=400, detail="dataset_size must be a positive integer")
+
+    # Validate round_id
+    if round_id < 0:
+        raise HTTPException(status_code=400, detail="round_id must be non-negative")
+    current_round = state.storage.get_current_round(mid)
+    if round_id > current_round:
+        raise HTTPException(
+            status_code=400,
+            detail=f"round_id {round_id} is ahead of current round {current_round}",
+        )
+
     # Check round state — reject late submissions
     if not state.storage.is_round_accepting(mid, round_id):
         round_state = state.storage.get_round_state(mid, round_id)
+        logger.warning(f"Late submission rejected: client={cid}, round={round_id} ({round_state.value})")
         raise HTTPException(
             status_code=409,
             detail=f"Round {round_id} is {round_state.value}, not accepting submissions",
         )
 
-    # Reject duplicate client submissions within a round
-    existing = state.storage.list_deltas(mid, round_id)
-    if cid in existing:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Client '{cid}' has already submitted to round {round_id}",
-        )
-
-    # Read the uploaded safetensors file
-    content = await file.read()
+    # Read the uploaded safetensors file (with size limit)
+    content = await _read_upload_limited(file, state.max_upload_bytes)
     try:
         tensors = safetensors_load(content)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid safetensors file: {e}")
+        logger.error(f"Invalid safetensors upload from client {cid}: {e}")
+        raise HTTPException(status_code=400, detail="Invalid safetensors file")
 
     # Apply server-side DP if configured
     dp_applied = False
@@ -202,8 +296,16 @@ async def submit_delta(
         delta_meta["dp_delta"] = state.dp_delta
         delta_meta["dp_max_norm"] = state.dp_max_norm
 
-    # Store the delta
-    state.storage.save_delta(mid, round_id, cid, tensors, metadata=delta_meta)
+    # Store the delta (atomic duplicate detection happens in storage layer)
+    try:
+        state.storage.save_delta(mid, round_id, cid, tensors, metadata=delta_meta)
+    except DuplicateClientError:
+        logger.warning(f"Duplicate submission rejected: client={cid}, round={round_id}")
+        raise HTTPException(
+            status_code=409,
+            detail=f"Client '{cid}' has already submitted to round {round_id}",
+        )
+
     submitted = state.storage.list_deltas(mid, round_id)
     num_submitted = len(submitted)
 
@@ -254,14 +356,15 @@ async def get_round(model_id: str, round_id: int):
     )
 
 
-@app.post("/models/{model_id:path}/base-weights", dependencies=[Depends(require_auth)])
+@app.post("/models/{model_id:path}/base-weights", dependencies=[Depends(require_auth), Depends(check_rate_limit)])
 async def upload_base_weights(model_id: str, file: UploadFile = File(...)):
     """Upload base model weights (safetensors file)."""
-    content = await file.read()
+    content = await _read_upload_limited(file, state.max_upload_bytes)
     try:
         tensors = safetensors_load(content)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid safetensors file: {e}")
+        logger.error(f"Invalid base weights upload for model {model_id}: {e}")
+        raise HTTPException(status_code=400, detail="Invalid safetensors file")
     state.storage.save_base_weights(model_id, tensors)
     return {"status": "ok", "model_id": model_id, "num_tensors": len(tensors)}
 
@@ -297,20 +400,29 @@ async def get_checkpoint(model_id: str):
     else:
         merged = base
 
-    # Save to temp file and serve
+    # Save to temp file and serve, with cleanup after response is sent
     import tempfile
     tmp = tempfile.NamedTemporaryFile(suffix=".safetensors", delete=False)
     save_file(merged, tmp.name)
+    tmp_path = tmp.name
+    tmp.close()
     return FileResponse(
-        tmp.name,
+        tmp_path,
         media_type="application/octet-stream",
         filename="checkpoint.safetensors",
+        background=BackgroundTask(os.unlink, tmp_path),
     )
 
 
 @app.websocket("/ws/{client_id}")
-async def websocket_endpoint(websocket: WebSocket, client_id: str):
+async def websocket_endpoint(websocket: WebSocket, client_id: str, token: str | None = None):
     """WebSocket endpoint for real-time aggregation notifications."""
+    # Authenticate WebSocket connections if API keys are configured
+    if state.api_keys:
+        if not token or not any(hmac.compare_digest(token, key) for key in state.api_keys):
+            await websocket.close(code=4003, reason="Authentication required")
+            return
+
     await state.ws_manager.connect(client_id, websocket)
     try:
         while True:
@@ -324,6 +436,11 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str):
 async def _run_aggregation_async(model_id: str, round_id: int) -> None:
     """Run aggregation in a background thread to avoid blocking the event loop."""
     async with state._aggregation_lock:
+        # Double-check: another coroutine may have already aggregated this round
+        if state.storage.get_round_state(model_id, round_id) != RoundState.OPEN:
+            logger.info(f"Round {round_id} already aggregated/aggregating, skipping")
+            return
+
         # Mark round as aggregating so no more submissions arrive
         state.storage.set_round_state(model_id, round_id, RoundState.AGGREGATING)
         try:
@@ -339,7 +456,8 @@ async def _run_aggregation_async(model_id: str, round_id: int) -> None:
                 "adapter_ready": True,
                 "base_weights_updated": bool(residuals_folded),
             })
-        except Exception:
+        except Exception as exc:
+            logger.error(f"Aggregation failed for round {round_id}: {exc}", exc_info=True)
             # Re-open round on failure so clients can retry
             state.storage.set_round_state(model_id, round_id, RoundState.OPEN)
             raise
@@ -350,21 +468,44 @@ def _run_aggregation(model_id: str, round_id: int) -> bool:
 
     Returns True if residuals were folded into base weights.
     """
+    from chorus.server.aggregation import norm_bound_deltas, filter_outlier_deltas
+
     deltas = state.storage.load_all_deltas(model_id, round_id)
     if not deltas:
         return False
 
     logger.info(f"Aggregating {len(deltas)} deltas for model={model_id}, round={round_id}")
 
+    # Apply Byzantine defenses if configured
+    if state.norm_bound is not None:
+        deltas = norm_bound_deltas(deltas, state.norm_bound)
+        logger.info(f"Applied norm bounding (max_norm={state.norm_bound})")
+
+    if state.outlier_threshold is not None:
+        original_count = len(deltas)
+        deltas = filter_outlier_deltas(deltas, state.outlier_threshold)
+        filtered = original_count - len(deltas)
+        if filtered > 0:
+            logger.warning(f"Filtered {filtered} outlier deltas (threshold={state.outlier_threshold})")
+        if not deltas:
+            logger.error("All deltas filtered as outliers, skipping aggregation")
+            return False
+
     # Compute dataset-size-proportional weights if available
+    # Note: after filtering, we re-load metadata for surviving clients only
     metadata_list = state.storage.load_all_delta_metadata(model_id, round_id)
-    sizes = [m.get("dataset_size") for m in metadata_list]
-    if sizes and all(s is not None for s in sizes):
-        total = sum(sizes)
-        weights = [s / total for s in sizes] if total > 0 else None
-        logger.info(f"Using dataset-size weights: {weights}")
-    else:
+    # If outlier filtering reduced deltas, metadata_list still has all entries.
+    # Use len(deltas) to determine count; if mismatch, fall back to uniform weights.
+    if len(metadata_list) != len(deltas):
         weights = None
+    else:
+        sizes = [m.get("dataset_size") for m in metadata_list]
+        if sizes and all(s is not None for s in sizes):
+            total = sum(sizes)
+            weights = [s / total for s in sizes] if total > 0 else None
+            logger.info(f"Using dataset-size weights: {weights}")
+        else:
+            weights = None
 
     result = state.strategy.aggregate(deltas, weights)
 

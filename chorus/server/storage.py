@@ -3,13 +3,29 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 import shutil
 import time
 from enum import Enum
 from pathlib import Path
 
+from chorus.exceptions import DuplicateClientError
+
 import torch
 from safetensors.torch import load_file, save_file
+
+
+def _sanitize_client_id(client_id: str) -> str:
+    """Sanitize client_id to prevent path traversal attacks."""
+    # Strip path separators, null bytes, and leading dots
+    safe = re.sub(r'[/\\:\x00]', '_', client_id)
+    safe = safe.lstrip('.')
+    # Cap length
+    safe = safe[:128]
+    if not safe:
+        raise ValueError("client_id is empty or invalid after sanitization")
+    return safe
 
 
 class RoundState(str, Enum):
@@ -44,8 +60,19 @@ class DeltaStorage:
         metadata: dict | None = None,
     ) -> Path:
         """Save a client's LoRA delta to disk."""
+        client_id = _sanitize_client_id(client_id)
         deltas_dir = self._deltas_dir(model_id, round_id)
         deltas_dir.mkdir(parents=True, exist_ok=True)
+
+        # Atomic duplicate detection via exclusive file creation
+        lock_path = deltas_dir / f"{client_id}.lock"
+        try:
+            fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.close(fd)
+        except FileExistsError:
+            raise DuplicateClientError(
+                f"Client '{client_id}' has already submitted to round {round_id}"
+            )
 
         delta_path = deltas_dir / f"{client_id}.safetensors"
         save_file(tensors, str(delta_path))
@@ -234,3 +261,16 @@ class DeltaStorage:
         if not path.exists():
             return {}
         return load_file(str(path))
+
+    def find_stuck_rounds(self, model_id: str) -> list[int]:
+        """Find rounds stuck in AGGREGATING state (from a previous crash)."""
+        model_dir = self._model_dir(model_id)
+        if not model_dir.exists():
+            return []
+        stuck = []
+        for p in model_dir.iterdir():
+            if p.is_dir() and p.name.startswith("round_"):
+                round_id = int(p.name.split("_")[1])
+                if self.get_round_state(model_id, round_id) == RoundState.AGGREGATING:
+                    stuck.append(round_id)
+        return sorted(stuck)

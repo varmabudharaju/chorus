@@ -8,12 +8,14 @@ Chorus (formerly FedLoRA) is a **full continuous federated LoRA training framewo
 
 ```bash
 pip install -e ".[dev]"       # Install with dev deps
-python3 -m pytest tests/ -v   # Run all tests (124 tests)
+python3 -m pytest tests/ -v   # Run all tests (165 tests)
 chorus server --model <id>    # Start aggregation server
 chorus server --model <id> --base-weights model.safetensors  # With base weight folding
 chorus train --server http://localhost:8080 --model <hf-id> --dataset <ds>  # Full loop
 chorus simulate --compare     # Run FedAvg vs FedEx-LoRA comparison
 chorus submit --server <url> --adapter <path> --dataset-size 5000
+chorus status --server <url>  # Show server/round status
+chorus export --server <url> --model <hf-id> --output ./merged/  # Export deployable model
 ```
 
 ## Architecture
@@ -21,6 +23,7 @@ chorus submit --server <url> --adapter <path> --dataset-size 5000
 ```
 chorus/
 ├── patterns.py              # Shared LoRA key patterns (LORA_A_PATTERN, LORA_B_PATTERN, get_layer_pairs)
+├── exceptions.py            # Exception hierarchy (ChorusError, ServerUnreachableError, etc.)
 ├── server/
 │   ├── app.py               # FastAPI endpoints + auth + async aggregation + WebSocket
 │   ├── aggregation.py       # FedAvg + FedEx-LoRA (SVD-optimal) + Byzantine defenses
@@ -29,10 +32,10 @@ chorus/
 │   ├── ws.py                # WebSocket connection manager for live notifications
 │   └── privacy.py           # Gaussian DP mechanism + global L2 clipping
 ├── client/
-│   ├── sdk.py               # ChorusClient class (submit, pull, listen, train_loop)
+│   ├── sdk.py               # ChorusClient class (submit, pull, listen, train_loop, export_model) + retries
 │   ├── trainer.py           # LoRATrainer wrapper for HF PEFT + transformers
 │   └── delta.py             # LoRA matrix extraction from PEFT adapters
-├── cli/main.py              # Click CLI (server, submit, pull, simulate, train)
+├── cli/main.py              # Click CLI (server, submit, pull, simulate, train, status, export) + error handling
 └── simulate/runner.py       # Synthetic multi-client federation runner
 ```
 
@@ -52,6 +55,11 @@ chorus/
 - Dataset-size-proportional client weighting via `dataset_size` query param
 - WebSocket broadcasts `round_complete` events after aggregation
 - DP clipping uses global L2 norm across all tensors (user-level DP)
+- SDK retries HTTP on connection errors, timeouts, 5xx (3 attempts, exponential backoff) — NOT 4xx
+- Custom exception hierarchy in `chorus/exceptions.py` — all inherit from `ChorusError`
+- CLI wraps all commands with `@handle_errors` for clean user-facing error messages
+- WebSocket `listen()` auto-reconnects (up to 3 attempts) with fallback to status polling
+- `export_model()` pulls adapter, loads base from HF, merges via PEFT, saves deployable HF model dir
 
 ## Continuous Improvement Loop
 

@@ -20,3 +20,10 @@ chorus_adapter*/
 adapters/
 checkpoints/
 wandb/
+
+# IDE / tool config
+.claude/
+
+# Experimentation artifacts
+notebooks/
+results/

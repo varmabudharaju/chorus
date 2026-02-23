@@ -5,12 +5,12 @@ build-backend = "hatchling.build"
 [project]
 name = "chorus"
 version = "0.1.0"
-description = "Federated LoRA adapter aggregation framework"
+description = "Federated LoRA adapter aggregation framework — exact aggregation with FedEx-LoRA"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
 authors = [{ name = "Chorus Contributors" }]
-keywords = ["federated-learning", "lora", "llm", "fine-tuning", "peft"]
+keywords = ["federated-learning", "lora", "llm", "fine-tuning", "peft", "fedex-lora", "aggregation"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -43,6 +43,7 @@ dev = [
     "pytest-asyncio>=0.23.0",
     "pytest-httpx>=0.28.0",
     "ruff>=0.1.0",
+    "build",
 ]
 all = ["chorus[peft,privacy,dev]"]
 
@@ -50,11 +51,26 @@ all = ["chorus[peft,privacy,dev]"]
 chorus = "chorus.cli.main:cli"
 
 [project.urls]
-Homepage = "https://github.com/chorus/chorus"
-Repository = "https://github.com/chorus/chorus"
+Homepage = "https://github.com/varmabudharaju/chorus"
+Repository = "https://github.com/varmabudharaju/chorus"
+Documentation = "https://github.com/varmabudharaju/chorus#readme"
+Changelog = "https://github.com/varmabudharaju/chorus/blob/main/CHANGELOG.md"
+Issues = "https://github.com/varmabudharaju/chorus/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["chorus"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "chorus/",
+    "tests/",
+    "examples/",
+    "benchmarks/",
+    "pyproject.toml",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
