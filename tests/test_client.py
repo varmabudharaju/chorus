@@ -81,3 +81,47 @@ class TestSaveLoadDelta:
         loaded = load_lora_delta(path)
         for key in original:
             assert torch.allclose(original[key], loaded[key])
+
+
+def test_client_raises_when_max_epsilon_exceeded(monkeypatch, tmp_path):
+    from chorus.client.sdk import ChorusClient
+    from chorus.exceptions import PrivacyBudgetExhaustedError
+
+    class MockSubmitResp:
+        status_code = 200
+
+        def json(self):
+            return {
+                "status": "accepted",
+                "client_id": "test",
+                "round_id": 0,
+                "model_id": "test",
+                "deltas_received": 1,
+                "min_deltas": 1,
+                "aggregated": False,
+                "next_round": 1,
+                "privacy": {
+                    "epsilon_consumed": 5.0,
+                    "epsilon_target": 10.0,
+                    "epsilon_remaining": 5.0,
+                    "delta": 1e-5,
+                    "exhausted": False,
+                },
+            }
+
+        def raise_for_status(self):
+            pass
+
+    client = ChorusClient(
+        server="http://x",
+        model_id="test",
+        client_id="test",
+        max_epsilon=2.0,
+    )
+    monkeypatch.setattr(client, "_request", lambda *a, **kw: MockSubmitResp())
+    # Submit with explicit round_id=0 so the status() call is skipped;
+    # the budget check should raise because consumed (5.0) > max_epsilon (2.0).
+    tensors = {"l.lora_A.weight": torch.zeros(2, 2), "l.lora_B.weight": torch.zeros(2, 2)}
+    save_file(tensors, str(tmp_path / "adapter_model.safetensors"))
+    with pytest.raises(PrivacyBudgetExhaustedError):
+        client.submit_delta(adapter_path=tmp_path, round_id=0)
