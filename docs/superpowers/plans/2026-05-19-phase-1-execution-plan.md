@@ -84,7 +84,7 @@ Every feature follows the same lifecycle. No exceptions.
    │     - Title: "[Phase 1.N] <Feature name>"               │
    │     - Body: closes #<issue>, summary, test plan         │
    │     - CI must be green                                  │
-   │     - Co-Authored-By trailer per spec (see §3)          │
+   │     - No AI-attribution trailer (see §3)                │
    └────────────────────────────────────────────────────────┘
                             │
                             ▼
@@ -116,7 +116,8 @@ Follow the existing repo convention (visible from `git log`): imperative mood, l
 
 ### Commit attribution
 - **Author** = `varmabudharaju <sairam.vzf33@gmail.com>` (matches verified GH account → counts in contribution graph). This is the current `git config user.*` for the repo; agents inherit it automatically inside worktrees.
-- **Co-Authored-By** trailer: `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>` — transparent about AI involvement. Does **not** affect the contribution graph (which counts by author email). If Varma later decides to omit this trailer, update this section and re-instruct subagents — no other change needed.
+- **No Co-Authored-By trailer.** All commits are attributed solely to Varma. Subagents must not add any AI co-author trailer to commit messages.
+- **No AI-attribution footer** in PR or issue bodies (no "Generated with Claude Code", no robot emoji, no equivalent). Sole attribution is the rule.
 
 ### PR template
 Every PR opens with:
@@ -134,8 +135,6 @@ Every PR opens with:
 
 ## Notes for reviewer
 <any context the reviewer needs that isn't obvious from the diff>
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
 ```
 
 ### Issue template
@@ -265,7 +264,7 @@ This plan operationalizes that brief as:
 - **Clean docs explaining decisions** → per-feature plans live in `docs/superpowers/plans/`, design docs in `docs/superpowers/specs/`. Both reference each other.
 - **Git worktrees per feature** → §3 worktree layout + §2 lifecycle step 3.
 - **One PR per feature** → §2 lifecycle step 6 + §3 PR template.
-- **Commits under Varma's name** → §3 commit attribution (author = Varma, Co-Authored-By trailer = AI transparency, contribution graph counts by author).
+- **Commits under Varma's name** → §3 commit attribution (sole authorship, no AI co-author trailer, no AI-attribution footer in PR/issue bodies).
 - **Issues raised as needed** → §2 lifecycle step 1 (issue per feature) + bugs filed ad-hoc during execution.
 
 If any of this needs to change, change it here in §3 first, then propagate to in-flight features by re-instructing their subagents.

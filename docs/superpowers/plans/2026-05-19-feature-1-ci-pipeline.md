@@ -242,8 +242,6 @@ Cancels superseded runs via concurrency group.
 
 Part of Phase 1 credibility release (closes #<ISSUE-NUMBER>).
 Spec: docs/superpowers/specs/2026-05-19-chorus-phase-1-credibility-design.md §4.5
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -431,8 +429,6 @@ git commit -m "$(cat <<'EOF'
 docs: add CI status badge to README
 
 Surfaces build health on the repo landing page.
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
 )"
 ```
@@ -477,8 +473,6 @@ gh pr create \
 ## Notes for reviewer
 - The eval-harness smoke step described in spec §4.5 is intentionally deferred to Feature 3 (it depends on `chorus eval`, which doesn't exist yet). When F3 lands, that step gets added in the F3 PR.
 - No coverage upload, no pre-commit hooks, no auto-deploy. Each is a separate follow-up.
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
 )"
 ```
@@ -562,7 +556,7 @@ Before opening the PR (Task 6), the implementing subagent runs this checklist:
 - [ ] README displays a CI badge as the first item in the badge row.
 - [ ] The badge image URL returns HTTP 200.
 - [ ] No unrelated files are modified (run `git diff master --stat` and confirm only `.github/workflows/ci.yml` and `README.md` appear).
-- [ ] Commit messages follow the convention in the master plan §3 (conventional-commits style + Co-Authored-By trailer).
+- [ ] Commit messages follow the convention in the master plan §3 (conventional-commits style; no Co-Authored-By or AI-attribution trailer).
 - [ ] The PR body references the issue with `Closes #<n>`.
 
 If any check fails, fix before opening the PR.
