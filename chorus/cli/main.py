@@ -412,5 +412,46 @@ def export_cmd(server_url, base_model, output, round_id, api_key, verbose):
     console.print(f"[dim]Load with: AutoModelForCausalLM.from_pretrained('{output_dir}')[/dim]")
 
 
+@cli.group()
+def privacy():
+    """Privacy budget management."""
+
+
+@privacy.command("budget")
+@click.option("--client-id", required=True, help="Client identifier")
+@click.option("--model-id", required=True, help="Model identifier")
+@click.option("--server", required=True, help="Server base URL")
+@click.option("--api-key", default=None, help="Bearer token (if server requires auth)")
+def privacy_budget(client_id: str, model_id: str, server: str, api_key: str | None):
+    """Print the remaining privacy budget for a client on a model."""
+    import httpx
+
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    try:
+        resp = httpx.get(
+            f"{server.rstrip('/')}/models/{model_id}/clients/{client_id}/privacy",
+            headers=headers,
+            timeout=10.0,
+        )
+        if resp.status_code == 404:
+            console.print("[yellow]Privacy accounting is not enabled on this server.[/yellow]")
+            raise SystemExit(0)
+        resp.raise_for_status()
+        data = resp.json()
+    except httpx.HTTPError as e:
+        console.print(f"[red]Failed to fetch budget: {e}[/red]")
+        raise SystemExit(1)
+
+    table = Table(title=f"Privacy budget — {client_id} on {model_id}")
+    table.add_column("Field")
+    table.add_column("Value", justify="right")
+    table.add_row("epsilon consumed", f"{data['epsilon_consumed']:.4f}")
+    table.add_row("epsilon target", f"{data['epsilon_target']:.4f}")
+    table.add_row("epsilon remaining", f"{data['epsilon_remaining']:.4f}")
+    table.add_row("delta", f"{data['delta']:.2e}")
+    table.add_row("exhausted", "YES" if data["exhausted"] else "NO")
+    console.print(table)
+
+
 if __name__ == "__main__":
     cli()
