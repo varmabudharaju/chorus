@@ -23,7 +23,7 @@ from chorus.exceptions import (
     ServerUnreachableError,
     SubmissionError,
 )
-from chorus.server.privacy import apply_dp
+from chorus.privacy.mechanism import apply_dp
 
 logger = logging.getLogger("chorus.client")
 

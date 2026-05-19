@@ -8,7 +8,7 @@ import tempfile
 import torch
 
 from chorus.server.aggregation import get_strategy
-from chorus.server.privacy import apply_dp
+from chorus.privacy.mechanism import apply_dp
 from chorus.server.storage import DeltaStorage
 
 logger = logging.getLogger("chorus.simulate")

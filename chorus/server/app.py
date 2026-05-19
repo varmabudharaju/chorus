@@ -18,7 +18,7 @@ from starlette.background import BackgroundTask
 
 from chorus.exceptions import DuplicateClientError
 from chorus.server.aggregation import AggregationStrategy, FedExLoRA, get_strategy
-from chorus.server.privacy import apply_dp
+from chorus.privacy.mechanism import apply_dp
 from chorus.server.storage import DeltaStorage, RoundState
 from chorus.server.ws import ConnectionManager
 

@@ -158,7 +158,7 @@ class TestFullRoundTrip:
 class TestPrivacy:
     def test_dp_noise_magnitude(self):
         """Verify DP noise is calibrated — higher epsilon = less noise."""
-        from chorus.server.privacy import GaussianMechanism
+        from chorus.privacy.mechanism import GaussianMechanism
 
         low_eps = GaussianMechanism(epsilon=0.1, sensitivity=1.0)
         high_eps = GaussianMechanism(epsilon=10.0, sensitivity=1.0)
@@ -166,7 +166,7 @@ class TestPrivacy:
         assert low_eps.sigma > high_eps.sigma
 
     def test_dp_changes_tensors(self):
-        from chorus.server.privacy import apply_dp
+        from chorus.privacy.mechanism import apply_dp
 
         tensors = {"weight": torch.ones(100, 100)}
         noised = apply_dp(tensors, epsilon=1.0, max_norm=1.0)
@@ -176,7 +176,7 @@ class TestPrivacy:
 
     def test_clipping_global_norm(self):
         """Verify clipping uses global L2 norm across all tensors."""
-        from chorus.server.privacy import clip_delta
+        from chorus.privacy.mechanism import clip_delta
 
         tensors = {
             "a": torch.ones(10) * 100,
@@ -194,7 +194,7 @@ class TestPrivacy:
         assert torch.allclose(ratio_a, ratio_b, atol=1e-6)
 
     def test_clipping_no_clip_when_under_norm(self):
-        from chorus.server.privacy import clip_delta
+        from chorus.privacy.mechanism import clip_delta
 
         tensors = {"weight": torch.ones(3) * 0.01}  # small norm
         clipped = clip_delta(tensors, max_norm=100.0)

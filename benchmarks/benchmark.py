@@ -91,7 +91,7 @@ def run_benchmark(configs, layers, dp_epsilon=None):
         deltas = [make_delta(layers, rank, dim, seed=i) for i in range(n_clients)]
 
         if dp_epsilon is not None:
-            from chorus.server.privacy import apply_dp
+            from chorus.privacy.mechanism import apply_dp
             deltas = [apply_dp(d, epsilon=dp_epsilon) for d in deltas]
 
         # FedAvg
