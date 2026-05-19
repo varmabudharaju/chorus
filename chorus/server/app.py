@@ -103,6 +103,13 @@ async def lifespan(app: FastAPI):
         state.storage.set_round_state(state.model_id, rid, RoundState.OPEN)
         logger.warning(f"Recovered stuck round {rid}: AGGREGATING -> OPEN")
 
+    # Restore privacy accountants for the configured model
+    if state.accountant_target_epsilon is not None:
+        restored = state.storage.load_all_accountants(state.model_id)
+        if restored:
+            state.accountants[state.model_id] = restored
+            logger.info(f"Restored {len(restored)} privacy accountants from disk")
+
     logger.info(
         f"Chorus server started — model={state.model_id}, "
         f"strategy={state.strategy.name}, min_deltas={state.min_deltas}"
