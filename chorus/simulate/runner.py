@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import logging
 import tempfile
-from pathlib import Path
 
 import torch
-from safetensors.torch import save_file
 
-from chorus.server.aggregation import AggregationStrategy, get_strategy
+from chorus.server.aggregation import get_strategy
 from chorus.server.privacy import apply_dp
 from chorus.server.storage import DeltaStorage
 

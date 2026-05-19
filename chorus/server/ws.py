@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 
-from fastapi import WebSocket, WebSocketDisconnect
+from fastapi import WebSocket
 
 logger = logging.getLogger("chorus.ws")
 

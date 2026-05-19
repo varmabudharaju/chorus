@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from safetensors.torch import save, load
 
 from chorus.server.app import app, configure
-from chorus.simulate.runner import run_simulation, generate_synthetic_lora_delta
+from chorus.simulate.runner import run_simulation
 
 
 class TestSimulation:

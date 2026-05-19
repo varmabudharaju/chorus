@@ -1,7 +1,5 @@
 """Tests for the client SDK and delta extraction."""
 
-import tempfile
-from pathlib import Path
 
 import pytest
 import torch

@@ -1,8 +1,5 @@
 """Security and robustness tests for all 16 audit fixes."""
 
-import json
-import os
-import tempfile
 
 import pytest
 import torch
@@ -74,9 +71,7 @@ class TestPathTraversal:
             params={"model_id": "sec-test", "client_id": "../../etc/passwd"},
         )
         assert resp.status_code == 200
-        # The file should be in the data dir, not in ../../etc/
-        data_dir = tmp_path / "data"
-        # Verify no files escaped the data dir
+        # Verify no files escaped the data dir (should be under tmp_path, not ../../etc/)
         assert not (tmp_path.parent / "etc").exists()
 
     def test_normal_client_id_works(self, client):

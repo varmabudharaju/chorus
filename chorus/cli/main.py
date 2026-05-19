@@ -105,7 +105,7 @@ def server(model, port, host, data_dir, strategy, min_deltas, dp_epsilon, api_ke
         state.storage.save_base_weights(model, tensors, meta={"source": base_weights})
         console.print(f"  Base weights: {base_weights} ({len(tensors)} tensors)")
 
-    console.print(f"[bold green]Chorus Server[/bold green]")
+    console.print("[bold green]Chorus Server[/bold green]")
     console.print(f"  Model:    {model}")
     console.print(f"  Strategy: {strategy}")
     console.print(f"  Min deltas: {min_deltas}")
@@ -155,12 +155,12 @@ def submit(server_url, adapter, model_id, client_id, round_id, dp_epsilon, datas
     with client:
         result = client.submit_delta(adapter_path=adapter, round_id=round_id, dataset_size=dataset_size)
 
-    console.print(f"[bold green]Delta submitted[/bold green]")
+    console.print("[bold green]Delta submitted[/bold green]")
     console.print(f"  Round:    {result['round_id']}")
     console.print(f"  Client:   {result['client_id']}")
     console.print(f"  Received: {result['deltas_received']}/{result['min_deltas']}")
     if result["aggregated"]:
-        console.print(f"  [bold yellow]Aggregation triggered![/bold yellow]")
+        console.print("  [bold yellow]Aggregation triggered![/bold yellow]")
 
 
 @cli.command()
@@ -217,7 +217,7 @@ def simulate(clients, rounds, model, strategy, rank, hidden_dim, dp_epsilon, com
 
     from chorus.simulate.runner import run_simulation
 
-    console.print(f"[bold green]Chorus Simulation[/bold green]")
+    console.print("[bold green]Chorus Simulation[/bold green]")
     console.print(f"  Clients:  {clients}")
     console.print(f"  Rounds:   {rounds}")
     console.print(f"  Strategy: {'comparison' if compare else strategy}")
@@ -299,7 +299,7 @@ def train(server_url, base_model, dataset, rounds, output_dir, lora_rank, max_st
         dp_epsilon=dp_epsilon,
     )
 
-    console.print(f"[bold green]Chorus Federated Training[/bold green]")
+    console.print("[bold green]Chorus Federated Training[/bold green]")
     console.print(f"  Server:     {server_url}")
     console.print(f"  Base model: {base_model}")
     console.print(f"  Dataset:    {dataset}")
@@ -393,7 +393,7 @@ def export_cmd(server_url, base_model, output, round_id, api_key, verbose):
 
     client = ChorusClient(server=server_url, model_id=model_id, api_key=api_key)
 
-    console.print(f"[bold green]Exporting merged model...[/bold green]")
+    console.print("[bold green]Exporting merged model...[/bold green]")
     console.print(f"  Server:     {server_url}")
     console.print(f"  Base model: {base_model}")
     console.print(f"  Output:     {output}")

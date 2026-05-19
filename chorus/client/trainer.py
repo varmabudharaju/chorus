@@ -62,7 +62,7 @@ class LoRATrainer:
         """Run LoRA fine-tuning. Returns path to the saved adapter directory."""
         from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments, Trainer
         from peft import LoraConfig, get_peft_model, PeftModel
-        from datasets import load_dataset, Dataset
+        from datasets import load_dataset
 
         # Auto-detect bf16 support: disable on MPS (Apple Silicon)
         use_bf16 = self.bf16
