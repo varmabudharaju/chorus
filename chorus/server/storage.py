@@ -274,3 +274,43 @@ class DeltaStorage:
                 if self.get_round_state(model_id, round_id) == RoundState.AGGREGATING:
                     stuck.append(round_id)
         return sorted(stuck)
+
+    # --- Privacy accountant persistence ---
+
+    def _privacy_dir(self, model_id: str) -> Path:
+        return self._model_dir(model_id) / "privacy"
+
+    def _accountant_path(self, model_id: str, client_id: str) -> Path:
+        client_id = _sanitize_client_id(client_id)
+        return self._privacy_dir(model_id) / f"{client_id}.json"
+
+    def save_accountant(self, model_id: str, client_id: str, accountant) -> None:
+        """Persist a PrivacyAccountant to disk."""
+        path = self._accountant_path(model_id, client_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Atomic write via tmp + rename
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(accountant.serialize(), indent=2))
+        tmp.replace(path)
+
+    def load_accountant(self, model_id: str, client_id: str):
+        """Load a PrivacyAccountant from disk, or None if not present."""
+        from chorus.privacy import PrivacyAccountant
+
+        path = self._accountant_path(model_id, client_id)
+        if not path.exists():
+            return None
+        return PrivacyAccountant.deserialize(json.loads(path.read_text()))
+
+    def load_all_accountants(self, model_id: str) -> dict:
+        """Return {client_id: PrivacyAccountant} for every accountant under this model."""
+        from chorus.privacy import PrivacyAccountant
+
+        priv_dir = self._privacy_dir(model_id)
+        if not priv_dir.exists():
+            return {}
+        out = {}
+        for path in priv_dir.glob("*.json"):
+            cid = path.stem
+            out[cid] = PrivacyAccountant.deserialize(json.loads(path.read_text()))
+        return out
