@@ -15,14 +15,14 @@
 
 ## 1. Feature breakdown
 
-| # | Feature | Branch | Issue | Detailed plan | Est | Depends on |
-|---|---|---|---|---|---|---|
-| F1 | CI pipeline | `feat/ci-pipeline` | TBD on kickoff | `2026-05-19-feature-1-ci-pipeline.md` ✅ | 3 days | — |
-| F2 | DP accountant | `feat/dp-accountant` | TBD on kickoff | written when F2 kicks off | 1.5 weeks | F1 |
-| F3 | Eval harness (`chorus.eval` + `chorus eval` CLI) | `feat/eval-harness` | TBD on kickoff | written when F3 kicks off | 2.5 weeks | F1 |
-| F4 | Benchmark suite (configs + runner + smoke verifier) | `feat/benchmark-suite` | TBD on kickoff | written when F4 kicks off | 1 week | F3 |
-| F5 | README rewrite + `docs/honest-tradeoffs.md` | `feat/honest-tradeoffs` | TBD on kickoff | written when F5 kicks off | 4 days | F2, F3, F4 |
-| F6 | v0.2.0 release (version bump, CHANGELOG, PyPI, GH release) | `release/v0.2.0` | TBD on kickoff | written when F6 kicks off | 1 day | F1–F5 + benchmark compute run |
+| # | Feature | Branch | Issue | Detailed plan | Est | Depends on | Status |
+|---|---|---|---|---|---|---|---|
+| F1 | CI pipeline | `feat/ci-pipeline` | #2 | `2026-05-19-feature-1-ci-pipeline.md` | 3 days | — | ✅ merged (PR #3) |
+| F2 | DP accountant | `feat/dp-accountant` | TBD on kickoff | `2026-05-19-feature-2-dp-accountant.md` | 1.5 weeks | F1 | planning |
+| F3 | Eval harness (`chorus.eval` + `chorus eval` CLI) | `feat/eval-harness` | TBD on kickoff | written when F3 kicks off | 2.5 weeks | F1 | pending |
+| F4 | Benchmark suite (configs + runner + smoke verifier) | `feat/benchmark-suite` | TBD on kickoff | written when F4 kicks off | 1 week | F3 | pending |
+| F5 | README rewrite + `docs/honest-tradeoffs.md` | `feat/honest-tradeoffs` | TBD on kickoff | written when F5 kicks off | 4 days | F2, F3, F4 | pending |
+| F6 | v0.2.0 release (version bump, CHANGELOG, PyPI, GH release) | `release/v0.2.0` | TBD on kickoff | written when F6 kicks off | 1 day | F1–F5 + benchmark compute run | pending |
 
 **Parallelism windows:**
 - After F1 merges: F2 + F3 in parallel (different subsystems, no overlap).
@@ -252,6 +252,14 @@ Phase 1 is done when:
 4. `chorus-fl==0.2.0` is on PyPI.
 5. GitHub release v0.2.0 is published with release notes summarizing what changed and linking to `docs/honest-tradeoffs.md`.
 6. Roadmap doc §Context updated to reflect post-v0.2.0 state. Phase 2 brainstorming can start.
+
+---
+
+## Completed features
+
+- **F1 — CI pipeline.** Merged 2026-05-19 in PR [#3](https://github.com/varmabudharaju/chorus/pull/3), closing issue [#2](https://github.com/varmabudharaju/chorus/issues/2). Adds `.github/workflows/ci.yml` (ruff + pytest matrixed across Python 3.10/3.11/3.12), CI status badge in README, and fixes 35 pre-existing ruff lint issues in a separate preceding commit. CI green on master.
+  - **Deviation from plan:** plan said "file a follow-up issue for pre-existing ruff failures, don't fix them in this PR." Implementer fixed them inline instead, because leaving 35 ruff violations would have made CI permanently red on day 1. Spec reviewer judged the deviation defensible; code quality reviewer confirmed no behavior changes in the fixes.
+  - **Follow-up issues filed:** [#5](https://github.com/varmabudharaju/chorus/issues/5) (concurrency group polish), [#6](https://github.com/varmabudharaju/chorus/issues/6) (SHA-pin actions, deferred to Phase 4).
 
 ---
 
