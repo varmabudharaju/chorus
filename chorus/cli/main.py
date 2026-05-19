@@ -364,6 +364,22 @@ def status(server_url, api_key, verbose):
         latest = model_status.get("latest_aggregated_round")
         console.print(f"  Last agg:  {'Round ' + str(latest) if latest is not None else 'none'}")
 
+    # Check if privacy accounting is enabled (probe any client endpoint)
+    try:
+        privacy_resp = httpx.get(
+            f"{base_url}/models/{model_id}/clients/__probe__/privacy",
+            headers=headers,
+            timeout=5.0,
+        )
+        if privacy_resp.status_code != 404:
+            console.print(
+                "[dim]Privacy accounting is enabled. "
+                "Run `chorus privacy budget --client-id <id> --model-id "
+                f"{model_id} --server {base_url}` to see a client's budget.[/dim]"
+            )
+    except Exception:
+        pass
+
 
 @cli.command(name="export")
 @click.option("--server", "server_url", required=True, help="Server URL")
