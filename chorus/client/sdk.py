@@ -6,12 +6,15 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Callable, Generator
+from typing import TYPE_CHECKING, Callable, Generator
+
+if TYPE_CHECKING:
+    from chorus.client.trainer import LoRATrainer
 
 import httpx
 from safetensors.torch import save_file, load_file
 
-from chorus.client.delta import extract_lora_matrices, save_lora_delta
+from chorus.client.delta import extract_lora_matrices
 from chorus.exceptions import (
     AggregationPendingError,
     ChorusError,
@@ -68,7 +71,6 @@ class ChorusClient:
         Retries on connection errors, timeouts, and 5xx responses (up to 3 attempts
         with exponential backoff: 1s, 2s, 4s). Does NOT retry 4xx errors.
         """
-        last_exc: Exception | None = None
         resp: httpx.Response | None = None
 
         for attempt in range(_MAX_RETRIES):
@@ -82,8 +84,7 @@ class ChorusClient:
                     time.sleep(2 ** attempt)
                     continue
                 return resp
-            except httpx.ConnectError as exc:
-                last_exc = exc
+            except httpx.ConnectError:
                 if attempt < _MAX_RETRIES - 1:
                     logger.warning(
                         "Connection failed to %s, retrying (%d/%d)...",
@@ -94,8 +95,7 @@ class ChorusClient:
                 raise ServerUnreachableError(
                     f"Cannot connect to Chorus server at {self.server}"
                 ) from None
-            except httpx.TimeoutException as exc:
-                last_exc = exc
+            except httpx.TimeoutException:
                 if attempt < _MAX_RETRIES - 1:
                     logger.warning(
                         "Request timed out, retrying (%d/%d)...",
@@ -494,7 +494,7 @@ class ChorusClient:
                         if on_round_complete and msg.get("event") == "round_complete":
                             on_round_complete(msg)
                         yield msg
-            except (ConnectionClosed, OSError) as exc:
+            except (ConnectionClosed, OSError):
                 # ConnectionClosed = dropped during recv
                 # OSError (including ConnectionRefusedError) = failed to reconnect
                 reconnect_attempts += 1

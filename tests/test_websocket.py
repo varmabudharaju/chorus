@@ -1,6 +1,5 @@
 """Tests for WebSocket connection manager and live notifications."""
 
-import asyncio
 import json
 
 import pytest
@@ -8,7 +7,7 @@ import torch
 from fastapi.testclient import TestClient
 from safetensors.torch import save
 
-from chorus.server.app import app, configure, state
+from chorus.server.app import app, configure
 from chorus.server.ws import ConnectionManager
 
 

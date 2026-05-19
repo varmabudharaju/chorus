@@ -1,8 +1,7 @@
 """Tests for the LoRATrainer interface (mock-based, no GPU required)."""
 
-import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 
 from chorus.client.trainer import LoRATrainer
 

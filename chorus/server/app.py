@@ -10,11 +10,9 @@ import time
 import uuid
 from collections import defaultdict
 from contextlib import asynccontextmanager
-from pathlib import Path
 
-import torch
 from fastapi import FastAPI, HTTPException, Query, Request, UploadFile, File, Depends, Header, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
 from safetensors.torch import load as safetensors_load, save_file
 from starlette.background import BackgroundTask
 

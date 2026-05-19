@@ -49,8 +49,8 @@ class TestFoldResidualsIntoBase:
             assert torch.allclose(updated[key].float(), expected, atol=1e-6)
 
     def test_preserves_dtype(self):
-        base = {f"{l}.weight": torch.randn(8, 8).half() for l in LAYERS}
-        residuals = {l: torch.randn(8, 8) * 0.01 for l in LAYERS}
+        base = {f"{layer}.weight": torch.randn(8, 8).half() for layer in LAYERS}
+        residuals = {layer: torch.randn(8, 8) * 0.01 for layer in LAYERS}
         updated = fold_residuals_into_base(base, residuals)
         for key in updated:
             assert updated[key].dtype == torch.float16
@@ -58,7 +58,7 @@ class TestFoldResidualsIntoBase:
     def test_missing_base_key_skipped(self):
         """Residuals for layers not in base weights are silently skipped."""
         base = {f"{LAYERS[0]}.weight": torch.randn(8, 8)}
-        residuals = {l: torch.randn(8, 8) * 0.01 for l in LAYERS}
+        residuals = {layer: torch.randn(8, 8) * 0.01 for layer in LAYERS}
         updated = fold_residuals_into_base(base, residuals)
         # Only the first layer should be updated
         assert f"{LAYERS[0]}.weight" in updated

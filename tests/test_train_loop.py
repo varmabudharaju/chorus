@@ -1,8 +1,6 @@
 """Tests for the continuous training loop (mock-based)."""
 
-import json
-from pathlib import Path
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
