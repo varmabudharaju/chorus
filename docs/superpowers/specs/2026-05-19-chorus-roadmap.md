@@ -9,7 +9,7 @@
 
 ## Context
 
-Chorus today (v0.1.0, Feb 2026) is a clean, technically-correct federated LoRA aggregation framework with a real implementation of FedEx-LoRA, solid Python hygiene, and a 165-test suite. It has 3 stars, no users, one commit on master, and a README that overclaims in three specific places ("mathematically exact" without the residual-folding caveat, "differential privacy" without composition tracking, "Byzantine defenses" for what's really an outlier filter).
+Chorus today (v0.1.0, Feb 2026) is a clean, technically-correct federated LoRA aggregation framework with a real implementation of FedEx-LoRA, solid Python hygiene, and a 165-test suite. It has 3 stars, no external users, and a README that overclaims in three specific places ("mathematically exact" without the residual-folding caveat, "differential privacy" without composition tracking, "Byzantine defenses" for what's really an outlier filter).
 
 The goal of this roadmap is to close the marketing-vs-substance gap, then progressively harden Chorus into something a stranger would actually adopt for their own federated training.
 

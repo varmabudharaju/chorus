@@ -21,7 +21,7 @@ Chorus v0.1.0 makes three claims its code does not fully back:
 Additionally:
 - No benchmark on real data shows FedEx-LoRA actually improves downstream task quality over FedAvg.
 - No CI runs the 165-test suite on PRs. The number is marketing without enforcement.
-- Single commit on master suggests work was developed in a private repo and dumped; the public repo has zero contribution-velocity signal.
+- No external contributors; no issues, no PRs, no recurring releases — the public repo has zero contribution-velocity signal.
 
 Phase 1 closes these credibility gaps.
 
