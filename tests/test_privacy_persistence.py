@@ -1,6 +1,5 @@
 """Tests for accountant persistence in DeltaStorage."""
 
-import json
 from pathlib import Path
 
 from chorus.privacy import PrivacyAccountant
