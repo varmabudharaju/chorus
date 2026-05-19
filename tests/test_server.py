@@ -254,3 +254,43 @@ class TestRoundManagement:
         resp = client.get("/models/test-model/status")
         assert "round_state" in resp.json()
         assert resp.json()["round_state"] == "open"
+
+
+def test_accounting_end_to_end_budget_exhaustion(tmp_path):
+    """End-to-end: submit until budget is exhausted, then expect 403."""
+    from fastapi.testclient import TestClient
+    from safetensors.torch import save
+    import torch
+    from chorus.server import app as app_module
+
+    app_module.configure(
+        model_id="m",
+        data_dir=str(tmp_path),
+        strategy="fedex-lora",
+        min_deltas=1,
+        dp_epsilon=1.0, dp_delta=1e-5, dp_max_norm=1.0,
+        accountant_target_epsilon=0.5,   # tight budget
+        accountant_noise_multiplier=0.5, # small noise → ε grows fast
+        accountant_sample_rate=1.0,
+    )
+    with TestClient(app_module.app) as client:
+        tensors = {
+            "l.lora_A.weight": torch.zeros(2, 2),
+            "l.lora_B.weight": torch.zeros(2, 2),
+        }
+        payload = save(tensors)
+        files = {"file": ("delta.safetensors", payload, "application/octet-stream")}
+
+        # Submit until exhausted
+        exhausted = False
+        for round_id in range(50):
+            resp = client.post(
+                f"/rounds/{round_id}/deltas",
+                params={"client_id": "alice", "model_id": "m"},
+                files=files,
+            )
+            if resp.status_code == 403:
+                exhausted = True
+                assert "budget exhausted" in resp.text.lower()
+                break
+        assert exhausted, "Budget should have been exhausted within 50 submissions"
