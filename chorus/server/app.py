@@ -276,6 +276,24 @@ async def model_status(model_id: str):
     }
 
 
+@app.get("/models/{model_id:path}/clients/{client_id}/privacy", dependencies=[Depends(require_auth)])
+async def get_client_privacy(model_id: str, client_id: str):
+    """Return the privacy budget state for a specific client on this model."""
+    if state.accountant_target_epsilon is None:
+        raise HTTPException(status_code=404, detail="Privacy accounting is not enabled on this server")
+    accountant = _ensure_accountant(model_id, client_id)
+    eps_remaining, _ = accountant.remaining()
+    return {
+        "model_id": model_id,
+        "client_id": client_id,
+        "epsilon_consumed": accountant.get_epsilon(),
+        "epsilon_target": accountant.target_epsilon,
+        "epsilon_remaining": eps_remaining,
+        "delta": accountant.target_delta,
+        "exhausted": accountant.is_exhausted(),
+    }
+
+
 @app.post("/rounds/{round_id}/deltas", dependencies=[Depends(require_auth), Depends(check_rate_limit)])
 async def submit_delta(
     round_id: int,
