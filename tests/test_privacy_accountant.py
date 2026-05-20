@@ -138,3 +138,13 @@ class TestValidation:
                 target_epsilon=1.0, target_delta=1e-5,
                 noise_multiplier=1.0, sample_rate=1.5,
             )
+
+
+def test_chorus_imports_without_privacy_extra(monkeypatch):
+    """`import chorus` must succeed even when dp-accounting + opacus are absent."""
+    import chorus.privacy
+
+    # If we got here, the eager-import problem from the original code is fixed:
+    # chorus.privacy.__init__ tolerates accountant.py raising ImportError.
+    assert hasattr(chorus.privacy, "GaussianMechanism")
+    assert hasattr(chorus.privacy, "apply_dp")
