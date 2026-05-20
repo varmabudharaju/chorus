@@ -330,3 +330,52 @@ def test_accountant_advances_when_server_dp_disabled(tmp_path):
                 assert "budget exhausted" in resp.text.lower()
                 break
         assert exhausted, "Accountant must enforce budget even when server DP is disabled"
+
+
+def test_accountant_does_not_advance_on_duplicate_submission(tmp_path):
+    """A 409 DuplicateClientError must not burn the client's privacy budget."""
+    from fastapi.testclient import TestClient
+    from safetensors.torch import save
+    import torch
+    from chorus.server import app as app_module
+
+    app_module.configure(
+        model_id="m",
+        data_dir=str(tmp_path),
+        strategy="fedex-lora",
+        min_deltas=3,  # Won't aggregate, so the round stays OPEN for duplicate test
+        dp_epsilon=1.0, dp_delta=1e-5, dp_max_norm=1.0,
+        accountant_target_epsilon=10.0,
+        accountant_noise_multiplier=1.0,
+        accountant_sample_rate=1.0,
+    )
+    with TestClient(app_module.app) as client:
+        tensors = {
+            "l.lora_A.weight": torch.zeros(2, 2),
+            "l.lora_B.weight": torch.zeros(2, 2),
+        }
+        payload = save(tensors)
+        files = {"file": ("delta.safetensors", payload, "application/octet-stream")}
+
+        # First submission: accepted
+        r1 = client.post(
+            "/rounds/0/deltas",
+            params={"client_id": "alice", "model_id": "m"},
+            files=files,
+        )
+        assert r1.status_code == 200
+        eps_after_first = client.get("/models/m/clients/alice/privacy").json()["epsilon_consumed"]
+
+        # Second submission: same client, same round → 409
+        r2 = client.post(
+            "/rounds/0/deltas",
+            params={"client_id": "alice", "model_id": "m"},
+            files=files,
+        )
+        assert r2.status_code == 409
+        eps_after_dup = client.get("/models/m/clients/alice/privacy").json()["epsilon_consumed"]
+
+        # Budget must NOT have advanced on the duplicate
+        assert eps_after_dup == eps_after_first, (
+            f"Budget burned on duplicate: {eps_after_first} → {eps_after_dup}"
+        )

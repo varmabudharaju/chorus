@@ -372,14 +372,6 @@ async def submit_delta(
         )
         dp_applied = True
 
-    # Advance privacy accountant for this submission.
-    # Step whenever an accountant exists, regardless of whether the *server*
-    # applied noise — the client may be doing its own DP and the server is
-    # purely tracking the budget.
-    if accountant is not None:
-        accountant.step()
-        state.storage.save_accountant(mid, cid, accountant)
-
     # Build delta metadata (includes DP params if applied)
     delta_meta = {}
     if dataset_size is not None:
@@ -398,6 +390,12 @@ async def submit_delta(
             status_code=409,
             detail=f"Client '{cid}' has already submitted to round {round_id}",
         )
+
+    # Advance privacy accountant only after the submission is durably stored.
+    # Doing this before save_delta would burn budget even on 409 duplicates.
+    if accountant is not None:
+        accountant.step()
+        state.storage.save_accountant(mid, cid, accountant)
 
     submitted = state.storage.list_deltas(mid, round_id)
     num_submitted = len(submitted)
