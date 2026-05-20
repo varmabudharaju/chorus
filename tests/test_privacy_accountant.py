@@ -140,11 +140,52 @@ class TestValidation:
             )
 
 
-def test_chorus_imports_without_privacy_extra(monkeypatch):
-    """`import chorus` must succeed even when dp-accounting + opacus are absent."""
-    import chorus.privacy
+def test_deserialize_tolerates_legacy_backend_field():
+    """Old serialized state with 'backend' key must still deserialize."""
+    data = {
+        "target_epsilon": 10.0,
+        "target_delta": 1e-5,
+        "noise_multiplier": 1.0,
+        "sample_rate": 1.0,
+        "backend": "rdp",  # legacy field
+        "steps": 2,
+    }
+    a = PrivacyAccountant.deserialize(data)
+    assert a.target_epsilon == 10.0
+    assert a.get_epsilon() > 0
 
-    # If we got here, the eager-import problem from the original code is fixed:
-    # chorus.privacy.__init__ tolerates accountant.py raising ImportError.
-    assert hasattr(chorus.privacy, "GaussianMechanism")
-    assert hasattr(chorus.privacy, "apply_dp")
+
+def test_chorus_privacy_init_handles_accountant_import_error(monkeypatch):
+    """chorus/privacy/__init__.py must expose mechanism funcs even if accountant.py raises ImportError."""
+    import sys
+    import types
+
+    # Snapshot the real modules so we can restore them after the test
+    saved = {k: v for k, v in sys.modules.items() if k.startswith("chorus.privacy")}
+
+    # Remove cached modules so we can re-import with a poisoned accountant
+    for mod_name in list(sys.modules):
+        if mod_name.startswith("chorus.privacy"):
+            del sys.modules[mod_name]
+
+    # Insert a broken placeholder for the accountant that raises ImportError
+    class _FailModule(types.ModuleType):
+        def __getattr__(self, name):
+            raise ImportError("Simulated: dp-accounting + opacus both missing")
+
+    sys.modules["chorus.privacy.accountant"] = _FailModule("chorus.privacy.accountant")
+
+    try:
+        # Now importing chorus.privacy must succeed and expose mechanism funcs
+        import chorus.privacy
+        assert hasattr(chorus.privacy, "GaussianMechanism")
+        assert hasattr(chorus.privacy, "apply_dp")
+        assert hasattr(chorus.privacy, "clip_delta")
+        # PrivacyAccountant should NOT be present in this scenario
+        assert not hasattr(chorus.privacy, "PrivacyAccountant")
+    finally:
+        # Restore the real modules so subsequent tests are unaffected
+        for mod_name in list(sys.modules):
+            if mod_name.startswith("chorus.privacy"):
+                del sys.modules[mod_name]
+        sys.modules.update(saved)

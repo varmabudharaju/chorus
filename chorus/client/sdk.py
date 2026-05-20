@@ -60,6 +60,7 @@ class ChorusClient:
         self.dp_epsilon = dp_epsilon
         self.dp_delta = dp_delta
         self.dp_max_norm = dp_max_norm
+        self._warned_about_no_server_accounting = False
         headers = {}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
@@ -228,15 +229,24 @@ class ChorusClient:
         )
 
         # Check privacy budget if accounting is enabled server-side
-        if self.max_epsilon is not None and "privacy" in result:
-            consumed = result["privacy"]["epsilon_consumed"]
-            if consumed >= self.max_epsilon:
-                from chorus.exceptions import PrivacyBudgetExhaustedError
+        if self.max_epsilon is not None:
+            if "privacy" in result:
+                consumed = result["privacy"]["epsilon_consumed"]
+                if consumed >= self.max_epsilon:
+                    from chorus.exceptions import PrivacyBudgetExhaustedError
 
-                raise PrivacyBudgetExhaustedError(
-                    f"Client '{self.client_id}' exceeded configured max_epsilon "
-                    f"({self.max_epsilon}); server reports ε={consumed:.4f}"
+                    raise PrivacyBudgetExhaustedError(
+                        f"Client '{self.client_id}' exceeded configured max_epsilon "
+                        f"({self.max_epsilon}); server reports ε={consumed:.4f}"
+                    )
+            elif not self._warned_about_no_server_accounting:
+                logger.warning(
+                    "ChorusClient was configured with max_epsilon=%s but the server does not "
+                    "have privacy accounting enabled. The max_epsilon constraint will not be "
+                    "enforced. To enable, configure the server with accountant_target_epsilon.",
+                    self.max_epsilon,
                 )
+                self._warned_about_no_server_accounting = True
 
         return result
 

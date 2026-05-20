@@ -127,6 +127,46 @@ def test_client_raises_when_max_epsilon_exceeded(monkeypatch, tmp_path):
         client.submit_delta(adapter_path=tmp_path, round_id=0)
 
 
+def test_warn_when_max_epsilon_set_but_server_has_no_accounting(monkeypatch, caplog):
+    """If max_epsilon is set but server response has no 'privacy' key, warn once."""
+    import logging
+    from chorus.client.sdk import ChorusClient
+
+    class MockResp:
+        status_code = 200
+        def json(self):
+            return {
+                "status": "accepted", "client_id": "x", "round_id": 0,
+                "model_id": "m", "deltas_received": 1, "min_deltas": 1,
+                "aggregated": False, "next_round": 1,
+                # NO "privacy" key — server accounting disabled
+            }
+        def raise_for_status(self):
+            pass
+
+    client = ChorusClient(server="http://x", model_id="m", client_id="x", max_epsilon=1.0)
+    monkeypatch.setattr(client, "_request", lambda *a, **kw: MockResp())
+
+    # Create a real adapter file
+    from safetensors.torch import save_file
+    import torch
+    import tempfile
+    import os
+    tmp = tempfile.mkdtemp()
+    save_file(
+        {"l.lora_A.weight": torch.zeros(2, 2), "l.lora_B.weight": torch.zeros(2, 2)},
+        os.path.join(tmp, "adapter_model.safetensors"),
+    )
+
+    with caplog.at_level(logging.WARNING):
+        client.submit_delta(adapter_path=tmp, round_id=0)
+        client.submit_delta(adapter_path=tmp, round_id=1)
+
+    warnings = [r for r in caplog.records if "max_epsilon" in r.message and "not be enforced" in r.message]
+    # Warn exactly once across multiple submits
+    assert len(warnings) == 1
+
+
 def test_client_raises_typed_error_on_server_403_budget(monkeypatch, tmp_path):
     """Server-side 403 with budget-exhausted detail must surface as PrivacyBudgetExhaustedError."""
     from chorus.client.sdk import ChorusClient

@@ -199,9 +199,17 @@ async def check_rate_limit(request: Request):
 
 # --- Privacy Accountant ---
 
+# Protects the create-or-restore path in _ensure_accountant.
+# Cache hits do not need this lock (no await points → atomic in the event loop).
+_accountant_ensure_lock = asyncio.Lock()
 
-def _ensure_accountant(model_id: str, client_id: str):
+
+async def _ensure_accountant(model_id: str, client_id: str):
     """Return the accountant for (model_id, client_id), creating + persisting on first use.
+
+    Cache hits are O(1) and lock-free. The create-or-restore path is serialized via
+    _accountant_ensure_lock to prevent two concurrent first-submissions from creating
+    duplicate accountants and overwriting each other.
 
     Returns None if accounting is not configured at the server level.
     """
@@ -211,24 +219,29 @@ def _ensure_accountant(model_id: str, client_id: str):
 
     by_client = state.accountants.setdefault(model_id, {})
     if client_id in by_client:
-        return by_client[client_id]
+        return by_client[client_id]  # fast path, no lock
 
-    # Try to restore from disk
-    restored = state.storage.load_accountant(model_id, client_id)
-    if restored is not None:
-        by_client[client_id] = restored
-        return restored
+    async with _accountant_ensure_lock:
+        # Re-check after acquiring lock — another coroutine may have created it
+        if client_id in by_client:
+            return by_client[client_id]
 
-    # Create a fresh one
-    a = PrivacyAccountant(
-        target_epsilon=state.accountant_target_epsilon,
-        target_delta=state.dp_delta,
-        noise_multiplier=state.accountant_noise_multiplier,
-        sample_rate=state.accountant_sample_rate,
-    )
-    by_client[client_id] = a
-    state.storage.save_accountant(model_id, client_id, a)
-    return a
+        # Try to restore from disk
+        restored = state.storage.load_accountant(model_id, client_id)
+        if restored is not None:
+            by_client[client_id] = restored
+            return restored
+
+        # Create + persist a fresh one
+        a = PrivacyAccountant(
+            target_epsilon=state.accountant_target_epsilon,
+            target_delta=state.dp_delta,
+            noise_multiplier=state.accountant_noise_multiplier,
+            sample_rate=state.accountant_sample_rate,
+        )
+        by_client[client_id] = a
+        state.storage.save_accountant(model_id, client_id, a)
+        return a
 
 
 # --- Upload Size Limit ---
@@ -288,7 +301,7 @@ async def get_client_privacy(model_id: str, client_id: str):
     """Return the privacy budget state for a specific client on this model."""
     if state.accountant_target_epsilon is None:
         raise HTTPException(status_code=404, detail="Privacy accounting is not enabled on this server")
-    accountant = _ensure_accountant(model_id, client_id)
+    accountant = await _ensure_accountant(model_id, client_id)
     eps_remaining, _ = accountant.remaining()
     return {
         "model_id": model_id,
@@ -341,7 +354,7 @@ async def submit_delta(
         )
 
     # Privacy-budget enforcement
-    accountant = _ensure_accountant(mid, cid)
+    accountant = await _ensure_accountant(mid, cid)
     if accountant is not None and accountant.is_exhausted():
         eps_consumed = accountant.get_epsilon()
         raise HTTPException(

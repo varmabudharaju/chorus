@@ -94,6 +94,37 @@ def test_accountants_restore_on_server_startup(tmp_path: Path):
         assert abs(data["epsilon_consumed"] - eps_before) < 1e-9
 
 
+def test_ensure_accountant_no_duplicate_on_concurrent_first_call(tmp_path):
+    """Two concurrent first-time submissions from the same client must not create
+    duplicate accountants."""
+    import asyncio
+    from chorus.server import app as app_module
+
+    app_module.configure(
+        model_id="m",
+        data_dir=str(tmp_path),
+        strategy="fedex-lora",
+        min_deltas=1,
+        dp_epsilon=1.0, dp_delta=1e-5, dp_max_norm=1.0,
+        accountant_target_epsilon=10.0,
+        accountant_noise_multiplier=1.0,
+    )
+
+    async def _race():
+        # Two concurrent first-time calls
+        results = await asyncio.gather(
+            app_module._ensure_accountant("m", "alice"),
+            app_module._ensure_accountant("m", "alice"),
+        )
+        return results
+
+    a1, a2 = asyncio.run(_race())
+    # Both calls must return the SAME accountant object
+    assert a1 is a2
+    # And the cache must hold exactly one accountant for this client
+    assert len(app_module.state.accountants["m"]) == 1
+
+
 def test_accountant_path_uses_sanitized_client_id(tmp_path: Path):
     storage = DeltaStorage(tmp_path)
     a = PrivacyAccountant(
