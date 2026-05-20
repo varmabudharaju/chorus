@@ -364,6 +364,22 @@ def status(server_url, api_key, verbose):
         latest = model_status.get("latest_aggregated_round")
         console.print(f"  Last agg:  {'Round ' + str(latest) if latest is not None else 'none'}")
 
+    # Check if privacy accounting is enabled (probe any client endpoint)
+    try:
+        privacy_resp = httpx.get(
+            f"{base_url}/models/{model_id}/clients/__probe__/privacy",
+            headers=headers,
+            timeout=5.0,
+        )
+        if privacy_resp.status_code != 404:
+            console.print(
+                "[dim]Privacy accounting is enabled. "
+                "Run `chorus privacy budget --client-id <id> --model-id "
+                f"{model_id} --server {base_url}` to see a client's budget.[/dim]"
+            )
+    except Exception:
+        pass
+
 
 @cli.command(name="export")
 @click.option("--server", "server_url", required=True, help="Server URL")
@@ -410,6 +426,47 @@ def export_cmd(server_url, base_model, output, round_id, api_key, verbose):
 
     console.print(f"[bold green]Model exported to:[/bold green] {output_dir}")
     console.print(f"[dim]Load with: AutoModelForCausalLM.from_pretrained('{output_dir}')[/dim]")
+
+
+@cli.group()
+def privacy():
+    """Privacy budget management."""
+
+
+@privacy.command("budget")
+@click.option("--client-id", required=True, help="Client identifier")
+@click.option("--model-id", required=True, help="Model identifier")
+@click.option("--server", required=True, help="Server base URL")
+@click.option("--api-key", default=None, help="Bearer token (if server requires auth)")
+def privacy_budget(client_id: str, model_id: str, server: str, api_key: str | None):
+    """Print the remaining privacy budget for a client on a model."""
+    import httpx
+
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    try:
+        resp = httpx.get(
+            f"{server.rstrip('/')}/models/{model_id}/clients/{client_id}/privacy",
+            headers=headers,
+            timeout=10.0,
+        )
+        if resp.status_code == 404:
+            console.print("[yellow]Privacy accounting is not enabled on this server.[/yellow]")
+            raise SystemExit(0)
+        resp.raise_for_status()
+        data = resp.json()
+    except httpx.HTTPError as e:
+        console.print(f"[red]Failed to fetch budget: {e}[/red]")
+        raise SystemExit(1)
+
+    table = Table(title=f"Privacy budget — {client_id} on {model_id}")
+    table.add_column("Field")
+    table.add_column("Value", justify="right")
+    table.add_row("epsilon consumed", f"{data['epsilon_consumed']:.4f}")
+    table.add_row("epsilon target", f"{data['epsilon_target']:.4f}")
+    table.add_row("epsilon remaining", f"{data['epsilon_remaining']:.4f}")
+    table.add_row("delta", f"{data['delta']:.2e}")
+    table.add_row("exhausted", "YES" if data["exhausted"] else "NO")
+    console.print(table)
 
 
 if __name__ == "__main__":

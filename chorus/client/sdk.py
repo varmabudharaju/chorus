@@ -23,7 +23,7 @@ from chorus.exceptions import (
     ServerUnreachableError,
     SubmissionError,
 )
-from chorus.server.privacy import apply_dp
+from chorus.privacy.mechanism import apply_dp
 
 logger = logging.getLogger("chorus.client")
 
@@ -50,11 +50,13 @@ class ChorusClient:
         dp_delta: float = 1e-5,
         dp_max_norm: float = 1.0,
         timeout: float = 120.0,
+        max_epsilon: float | None = None,
     ):
         self.server = server.rstrip("/")
         self.model_id = model_id
         self.client_id = client_id
         self.api_key = api_key
+        self.max_epsilon = max_epsilon
         self.dp_epsilon = dp_epsilon
         self.dp_delta = dp_delta
         self.dp_max_norm = dp_max_norm
@@ -132,6 +134,9 @@ class ChorusClient:
             raise ChorusError(detail)
         if resp.status_code == 400:
             raise SubmissionError(detail)
+        if resp.status_code == 403 and "budget exhausted" in detail.lower():
+            from chorus.exceptions import PrivacyBudgetExhaustedError
+            raise PrivacyBudgetExhaustedError(detail)
         raise ChorusError(f"Server error ({resp.status_code}): {detail}")
 
     # --- Public API ---
@@ -221,6 +226,18 @@ class ChorusClient:
             f"received={result['deltas_received']}/{result['min_deltas']}, "
             f"aggregated={result['aggregated']}"
         )
+
+        # Check privacy budget if accounting is enabled server-side
+        if self.max_epsilon is not None and "privacy" in result:
+            consumed = result["privacy"]["epsilon_consumed"]
+            if consumed >= self.max_epsilon:
+                from chorus.exceptions import PrivacyBudgetExhaustedError
+
+                raise PrivacyBudgetExhaustedError(
+                    f"Client '{self.client_id}' exceeded configured max_epsilon "
+                    f"({self.max_epsilon}); server reports ε={consumed:.4f}"
+                )
+
         return result
 
     def pull_latest(self, output_path: str | Path, adapter_config: dict | None = None) -> Path:

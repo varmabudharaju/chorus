@@ -18,7 +18,7 @@ from starlette.background import BackgroundTask
 
 from chorus.exceptions import DuplicateClientError
 from chorus.server.aggregation import AggregationStrategy, FedExLoRA, get_strategy
-from chorus.server.privacy import apply_dp
+from chorus.privacy.mechanism import apply_dp
 from chorus.server.storage import DeltaStorage, RoundState
 from chorus.server.ws import ConnectionManager
 
@@ -68,6 +68,10 @@ class ServerState:
     norm_bound: float | None
     outlier_threshold: float | None
     rate_limiter: RateLimiter | None
+    accountants: dict  # {model_id: {client_id: PrivacyAccountant}}
+    accountant_target_epsilon: float | None
+    accountant_noise_multiplier: float | None
+    accountant_sample_rate: float
 
 
 state = ServerState()
@@ -78,6 +82,10 @@ state.max_upload_bytes = 500 * 1024 * 1024
 state.norm_bound = None
 state.outlier_threshold = None
 state.rate_limiter = None
+state.accountants = {}
+state.accountant_target_epsilon = None
+state.accountant_noise_multiplier = None
+state.accountant_sample_rate = 1.0
 
 
 @asynccontextmanager
@@ -94,6 +102,13 @@ async def lifespan(app: FastAPI):
     for rid in stuck_rounds:
         state.storage.set_round_state(state.model_id, rid, RoundState.OPEN)
         logger.warning(f"Recovered stuck round {rid}: AGGREGATING -> OPEN")
+
+    # Restore privacy accountants for the configured model
+    if state.accountant_target_epsilon is not None:
+        restored = state.storage.load_all_accountants(state.model_id)
+        if restored:
+            state.accountants[state.model_id] = restored
+            logger.info(f"Restored {len(restored)} privacy accountants from disk")
 
     logger.info(
         f"Chorus server started — model={state.model_id}, "
@@ -128,6 +143,9 @@ def configure(
     norm_bound: float | None = None,
     outlier_threshold: float | None = None,
     rate_limit: int = 0,
+    accountant_target_epsilon: float | None = None,
+    accountant_noise_multiplier: float | None = None,
+    accountant_sample_rate: float = 1.0,
 ) -> FastAPI:
     """Configure the server before starting."""
     state.storage = DeltaStorage(data_dir)
@@ -144,6 +162,10 @@ def configure(
     state.norm_bound = norm_bound
     state.outlier_threshold = outlier_threshold
     state.rate_limiter = RateLimiter(rate_limit) if rate_limit > 0 else None
+    state.accountant_target_epsilon = accountant_target_epsilon
+    state.accountant_noise_multiplier = accountant_noise_multiplier
+    state.accountant_sample_rate = accountant_sample_rate
+    state.accountants = {}
     return app
 
 
@@ -173,6 +195,40 @@ async def check_rate_limit(request: Request):
         client_ip = request.client.host if request.client else "unknown"
         if not state.rate_limiter.is_allowed(client_ip):
             raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+
+# --- Privacy Accountant ---
+
+
+def _ensure_accountant(model_id: str, client_id: str):
+    """Return the accountant for (model_id, client_id), creating + persisting on first use.
+
+    Returns None if accounting is not configured at the server level.
+    """
+    if state.accountant_target_epsilon is None or state.accountant_noise_multiplier is None:
+        return None
+    from chorus.privacy import PrivacyAccountant
+
+    by_client = state.accountants.setdefault(model_id, {})
+    if client_id in by_client:
+        return by_client[client_id]
+
+    # Try to restore from disk
+    restored = state.storage.load_accountant(model_id, client_id)
+    if restored is not None:
+        by_client[client_id] = restored
+        return restored
+
+    # Create a fresh one
+    a = PrivacyAccountant(
+        target_epsilon=state.accountant_target_epsilon,
+        target_delta=state.dp_delta,
+        noise_multiplier=state.accountant_noise_multiplier,
+        sample_rate=state.accountant_sample_rate,
+    )
+    by_client[client_id] = a
+    state.storage.save_accountant(model_id, client_id, a)
+    return a
 
 
 # --- Upload Size Limit ---
@@ -227,6 +283,24 @@ async def model_status(model_id: str):
     }
 
 
+@app.get("/models/{model_id:path}/clients/{client_id}/privacy", dependencies=[Depends(require_auth)])
+async def get_client_privacy(model_id: str, client_id: str):
+    """Return the privacy budget state for a specific client on this model."""
+    if state.accountant_target_epsilon is None:
+        raise HTTPException(status_code=404, detail="Privacy accounting is not enabled on this server")
+    accountant = _ensure_accountant(model_id, client_id)
+    eps_remaining, _ = accountant.remaining()
+    return {
+        "model_id": model_id,
+        "client_id": client_id,
+        "epsilon_consumed": accountant.get_epsilon(),
+        "epsilon_target": accountant.target_epsilon,
+        "epsilon_remaining": eps_remaining,
+        "delta": accountant.target_delta,
+        "exhausted": accountant.is_exhausted(),
+    }
+
+
 @app.post("/rounds/{round_id}/deltas", dependencies=[Depends(require_auth), Depends(check_rate_limit)])
 async def submit_delta(
     round_id: int,
@@ -264,6 +338,19 @@ async def submit_delta(
         raise HTTPException(
             status_code=409,
             detail=f"Round {round_id} is {round_state.value}, not accepting submissions",
+        )
+
+    # Privacy-budget enforcement
+    accountant = _ensure_accountant(mid, cid)
+    if accountant is not None and accountant.is_exhausted():
+        eps_consumed = accountant.get_epsilon()
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Privacy budget exhausted for client '{cid}' on model '{mid}'. "
+                f"ε consumed = {eps_consumed:.4f}, target ε = {accountant.target_epsilon}. "
+                f"Refusing further submissions."
+            ),
         )
 
     # Read the uploaded safetensors file (with size limit)
@@ -304,6 +391,12 @@ async def submit_delta(
             detail=f"Client '{cid}' has already submitted to round {round_id}",
         )
 
+    # Advance privacy accountant only after the submission is durably stored.
+    # Doing this before save_delta would burn budget even on 409 duplicates.
+    if accountant is not None:
+        accountant.step()
+        state.storage.save_accountant(mid, cid, accountant)
+
     submitted = state.storage.list_deltas(mid, round_id)
     num_submitted = len(submitted)
 
@@ -316,7 +409,7 @@ async def submit_delta(
         await _run_aggregation_async(mid, round_id)
         aggregated = True
 
-    return {
+    response: dict = {
         "status": "accepted",
         "client_id": cid,
         "round_id": round_id,
@@ -326,6 +419,16 @@ async def submit_delta(
         "aggregated": aggregated,
         "next_round": round_id + 1,
     }
+    if accountant is not None:
+        eps_remaining, _ = accountant.remaining()
+        response["privacy"] = {
+            "epsilon_consumed": accountant.get_epsilon(),
+            "epsilon_target": accountant.target_epsilon,
+            "epsilon_remaining": eps_remaining,
+            "delta": accountant.target_delta,
+            "exhausted": accountant.is_exhausted(),
+        }
+    return response
 
 
 @app.get("/models/{model_id:path}/latest", dependencies=[Depends(require_auth)])

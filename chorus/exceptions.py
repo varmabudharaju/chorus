@@ -27,3 +27,11 @@ class DuplicateClientError(ChorusError):
 
 class ExportError(ChorusError):
     """Failed to export merged model."""
+
+
+class PrivacyBudgetExhaustedError(ChorusError):
+    """Raised when a client's configured (ε, δ) DP budget is exhausted.
+
+    The accompanying message includes the model_id, client_id, target_epsilon,
+    and consumed_epsilon so the user can adjust their training plan.
+    """
