@@ -134,6 +134,9 @@ class ChorusClient:
             raise ChorusError(detail)
         if resp.status_code == 400:
             raise SubmissionError(detail)
+        if resp.status_code == 403 and "budget exhausted" in detail.lower():
+            from chorus.exceptions import PrivacyBudgetExhaustedError
+            raise PrivacyBudgetExhaustedError(detail)
         raise ChorusError(f"Server error ({resp.status_code}): {detail}")
 
     # --- Public API ---

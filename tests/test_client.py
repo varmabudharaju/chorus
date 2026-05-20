@@ -125,3 +125,28 @@ def test_client_raises_when_max_epsilon_exceeded(monkeypatch, tmp_path):
     save_file(tensors, str(tmp_path / "adapter_model.safetensors"))
     with pytest.raises(PrivacyBudgetExhaustedError):
         client.submit_delta(adapter_path=tmp_path, round_id=0)
+
+
+def test_client_raises_typed_error_on_server_403_budget(monkeypatch, tmp_path):
+    """Server-side 403 with budget-exhausted detail must surface as PrivacyBudgetExhaustedError."""
+    from chorus.client.sdk import ChorusClient
+    from chorus.exceptions import PrivacyBudgetExhaustedError
+
+    class MockResp:
+        status_code = 403
+        text = '{"detail": "Privacy budget exhausted for client x on model m. ..."}'
+
+        def json(self):
+            return {"detail": "Privacy budget exhausted for client x on model m. ..."}
+
+        def raise_for_status(self):
+            pass
+
+    client = ChorusClient(server="http://x", model_id="m", client_id="x")
+    monkeypatch.setattr(client, "_request", lambda *a, **kw: MockResp())
+
+    tensors = {"l.lora_A.weight": torch.zeros(2, 2), "l.lora_B.weight": torch.zeros(2, 2)}
+    save_file(tensors, str(tmp_path / "adapter_model.safetensors"))
+
+    with pytest.raises(PrivacyBudgetExhaustedError):
+        client.submit_delta(adapter_path=tmp_path, round_id=0)
