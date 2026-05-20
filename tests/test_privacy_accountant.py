@@ -140,6 +140,21 @@ class TestValidation:
             )
 
 
+def test_deserialize_tolerates_legacy_backend_field():
+    """Old serialized state with 'backend' key must still deserialize."""
+    data = {
+        "target_epsilon": 10.0,
+        "target_delta": 1e-5,
+        "noise_multiplier": 1.0,
+        "sample_rate": 1.0,
+        "backend": "rdp",  # legacy field
+        "steps": 2,
+    }
+    a = PrivacyAccountant.deserialize(data)
+    assert a.target_epsilon == 10.0
+    assert a.get_epsilon() > 0
+
+
 def test_chorus_imports_without_privacy_extra(monkeypatch):
     """`import chorus` must succeed even when dp-accounting + opacus are absent."""
     import chorus.privacy

@@ -41,7 +41,6 @@ class PrivacyAccountant:
         target_delta: δ for the (ε, δ)-DP guarantee.
         noise_multiplier: σ / sensitivity for the Gaussian mechanism.
         sample_rate: Fraction of the dataset sampled per round (1.0 = full).
-        backend: "rdp" (default; uses dp-accounting RdpAccountant).
     """
 
     def __init__(
@@ -50,7 +49,6 @@ class PrivacyAccountant:
         target_delta: float,
         noise_multiplier: float,
         sample_rate: float = 1.0,
-        backend: str = "rdp",
     ) -> None:
         if target_epsilon <= 0:
             raise ValueError("target_epsilon must be positive")
@@ -65,7 +63,6 @@ class PrivacyAccountant:
         self.target_delta = float(target_delta)
         self.noise_multiplier = float(noise_multiplier)
         self.sample_rate = float(sample_rate)
-        self.backend = backend
         self._steps = 0
         self._accountant = self._make_backend()
 
@@ -120,19 +117,23 @@ class PrivacyAccountant:
             "target_delta": self.target_delta,
             "noise_multiplier": self.noise_multiplier,
             "sample_rate": self.sample_rate,
-            "backend": self.backend,
             "steps": self._steps,
         }
 
     @classmethod
     def deserialize(cls, data: dict[str, Any]) -> "PrivacyAccountant":
-        """Reconstruct a PrivacyAccountant from `serialize()` output."""
+        """Reconstruct a PrivacyAccountant from serialize() output.
+
+        Older serialized state may include a 'backend' field; it is ignored
+        because backend selection is now determined at import time by which
+        library is installed.
+        """
         a = cls(
             target_epsilon=float(data["target_epsilon"]),
             target_delta=float(data["target_delta"]),
             noise_multiplier=float(data["noise_multiplier"]),
             sample_rate=float(data.get("sample_rate", 1.0)),
-            backend=str(data.get("backend", "rdp")),
+            # 'backend' field intentionally ignored if present
         )
         steps = int(data.get("steps", 0))
         for _ in range(steps):
