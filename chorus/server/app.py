@@ -372,8 +372,11 @@ async def submit_delta(
         )
         dp_applied = True
 
-    # Advance privacy accountant after noise application
-    if dp_applied and accountant is not None:
+    # Advance privacy accountant for this submission.
+    # Step whenever an accountant exists, regardless of whether the *server*
+    # applied noise — the client may be doing its own DP and the server is
+    # purely tracking the budget.
+    if accountant is not None:
         accountant.step()
         state.storage.save_accountant(mid, cid, accountant)
 

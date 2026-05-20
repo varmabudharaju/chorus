@@ -294,3 +294,39 @@ def test_accounting_end_to_end_budget_exhaustion(tmp_path):
                 assert "budget exhausted" in resp.text.lower()
                 break
         assert exhausted, "Budget should have been exhausted within 50 submissions"
+
+
+def test_accountant_advances_when_server_dp_disabled(tmp_path):
+    """Accountant must still step when only client-side DP is in use."""
+    from chorus.server import app as app_module
+
+    app_module.configure(
+        model_id="m-nodp",
+        data_dir=str(tmp_path),
+        strategy="fedex-lora",
+        min_deltas=1,
+        # NO dp_epsilon — server does not add noise
+        accountant_target_epsilon=0.5,
+        accountant_noise_multiplier=0.5,
+        accountant_sample_rate=1.0,
+    )
+    with TestClient(app_module.app) as client:
+        tensors = {
+            "l.lora_A.weight": torch.zeros(2, 2),
+            "l.lora_B.weight": torch.zeros(2, 2),
+        }
+        payload = save(tensors)
+        files = {"file": ("delta.safetensors", payload, "application/octet-stream")}
+
+        exhausted = False
+        for round_id in range(50):
+            resp = client.post(
+                f"/rounds/{round_id}/deltas",
+                params={"client_id": "alice", "model_id": "m-nodp"},
+                files=files,
+            )
+            if resp.status_code == 403:
+                exhausted = True
+                assert "budget exhausted" in resp.text.lower()
+                break
+        assert exhausted, "Accountant must enforce budget even when server DP is disabled"
