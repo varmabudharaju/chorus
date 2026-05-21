@@ -75,6 +75,9 @@ include = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "network: tests that require network access (HuggingFace Hub model downloads)",
+]
 
 [tool.ruff]
 target-version = "py310"

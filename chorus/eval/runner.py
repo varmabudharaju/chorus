@@ -53,6 +53,16 @@ class EvalRunner:
     def run(self) -> EvalReport:
         """Run the full evaluation; return a report comparing strategies."""
         cfg = self.config
+        if cfg.num_rounds > 1:
+            logger.warning(
+                "num_rounds=%d but the v0.2.0 eval harness collapses multi-round "
+                "training (each round retrains from the base model with the same "
+                "seed and data). Total runtime will be num_rounds × single-round "
+                "time but the final aggregated result is equivalent to num_rounds=1. "
+                "Multi-round federation with cross-round state is a planned Feature 4 "
+                "extension.",
+                cfg.num_rounds,
+            )
         logger.info(
             "EvalRunner starting: model=%s, clients=%d, rounds=%d, strategies=%s",
             cfg.model_id,
@@ -269,7 +279,14 @@ class EvalRunner:
             optimizer.step()
             step += 1
 
-        return self._extract_lora_state_dict(peft_model)
+        result = self._extract_lora_state_dict(peft_model)
+        # Explicit cleanup — important for multi-client runs with larger models.
+        del peft_model
+        del model
+        del optimizer
+        import gc
+        gc.collect()
+        return result
 
     @staticmethod
     def _extract_lora_state_dict(peft_model) -> dict[str, torch.Tensor]:
@@ -317,11 +334,21 @@ class EvalRunner:
         peft_model = get_peft_model(base, lora_cfg)
         # Load aggregated adapter into the peft model
         peft_state = peft_model.state_dict()
+        matched = 0
         for k, v in aggregated.items():
             # PEFT may expect the "base_model.model." prefix
             cand = k if k in peft_state else f"base_model.model.{k}"
             if cand in peft_state:
                 peft_state[cand] = v.to(peft_state[cand].dtype)
+                matched += 1
+        if matched == 0 and aggregated:
+            logger.warning(
+                "No aggregated adapter weights matched PEFT state_dict keys (%d aggregated, "
+                "0 matched). Evaluation will reflect the BASE model + freshly-initialised "
+                "adapter, not the trained weights. Check that model_id matches the adapter "
+                "training run.",
+                len(aggregated),
+            )
         peft_model.load_state_dict(peft_state, strict=False)
         peft_model.eval()
 

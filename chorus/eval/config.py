@@ -87,7 +87,15 @@ class EvalConfig:
                 f"heterogeneous_rank length ({len(het)}) must equal num_clients ({data['num_clients']})"
             )
 
-        # Filter to known fields to avoid TypeError on extra keys
+        # Filter to known fields to avoid TypeError on extra keys; warn on unknowns
         known = {f.name for f in cls.__dataclass_fields__.values()}
+        unknown = set(data.keys()) - known
+        if unknown:
+            import logging
+            _cfg_logger = logging.getLogger("chorus.eval.config")
+            _cfg_logger.warning(
+                "Ignoring unknown config keys: %s. Known keys: %s",
+                sorted(unknown), sorted(known),
+            )
         filtered = {k: v for k, v in data.items() if k in known}
         return cls(**filtered)

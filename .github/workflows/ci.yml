@@ -38,7 +38,7 @@ jobs:
         run: ruff check chorus tests benchmarks
 
       - name: Run tests with pytest
-        run: pytest tests/ -v --tb=short -m "not network" -k "not test_runner_run_produces_report_with_both_strategies"
+        run: pytest tests/ -v --tb=short -m "not network"
 
       - name: Smoke-check eval harness wiring
         run: chorus eval --config benchmarks/configs/smoke.yaml --check-only
