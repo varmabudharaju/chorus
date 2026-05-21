@@ -36,7 +36,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-peft = ["peft>=0.7.0", "transformers>=4.36.0", "datasets>=2.16.0", "accelerate>=0.25.0"]
+peft = ["peft>=0.7.0", "transformers>=4.36.0", "datasets>=2.16.0", "accelerate>=0.25.0", "evaluate>=0.4.0"]
 privacy = ["opacus>=1.4.0", "dp-accounting>=0.4.0"]
 dev = [
     "pytest>=7.0.0",
