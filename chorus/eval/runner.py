@@ -269,7 +269,14 @@ class EvalRunner:
             optimizer.step()
             step += 1
 
-        return self._extract_lora_state_dict(peft_model)
+        result = self._extract_lora_state_dict(peft_model)
+        # Explicit cleanup — important for multi-client runs with larger models.
+        del peft_model
+        del model
+        del optimizer
+        import gc
+        gc.collect()
+        return result
 
     @staticmethod
     def _extract_lora_state_dict(peft_model) -> dict[str, torch.Tensor]:
