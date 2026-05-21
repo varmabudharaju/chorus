@@ -1,7 +1,6 @@
 """Tests for eval metrics (Frobenius reconstruction error + task metrics)."""
 
 import torch
-import pytest
 
 from chorus.eval.metrics import frobenius_reconstruction_error
 

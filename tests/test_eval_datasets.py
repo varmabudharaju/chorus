@@ -1,7 +1,6 @@
 """Tests for dataset loading + partitioning in the eval harness."""
 
 import numpy as np
-import pytest
 
 from chorus.eval.datasets import (
     partition_iid,
@@ -13,7 +12,7 @@ def _make_fake_dataset(n_examples: int, n_classes: int = 2):
     """Build a list of {text, label} dicts."""
     rng = np.random.default_rng(42)
     labels = rng.integers(0, n_classes, size=n_examples)
-    return [{"text": f"example {i}", "label": int(l)} for i, l in enumerate(labels)]
+    return [{"text": f"example {i}", "label": int(lbl)} for i, lbl in enumerate(labels)]
 
 
 class TestIID:
