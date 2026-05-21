@@ -39,6 +39,11 @@ class EvalReport:
         Path(path).write_text(self.to_markdown_string())
 
     def to_markdown_string(self) -> str:
+        def _fmt_metric_value(v) -> str:
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                return f"{v:.4f}"
+            return str(v)
+
         lines = [
             f"# Eval Report — {self.config_name}",
             "",
@@ -55,7 +60,7 @@ class EvalReport:
             "|---|---|---|---|---|",
         ]
         for r in self.results:
-            metric_str = ", ".join(f"{k}={v:.4f}" for k, v in r.final_task_metric.items())
+            metric_str = ", ".join(f"{k}={_fmt_metric_value(v)}" for k, v in r.final_task_metric.items())
             mean_t = (
                 sum(r.per_round_times_s) / len(r.per_round_times_s)
                 if r.per_round_times_s

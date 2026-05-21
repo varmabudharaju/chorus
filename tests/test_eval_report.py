@@ -65,3 +65,22 @@ def test_to_markdown_compares_strategies():
     # Both strategies in same table
     assert md.count("fedavg") >= 1
     assert md.count("fedex-lora") >= 1
+
+
+def test_to_markdown_handles_string_metric_values(tmp_path):
+    """Markdown table must not crash on non-numeric metric values like {'note': '...'}."""
+    report = EvalReport(
+        config_name="x", model_id="m", dataset_name="d",
+        num_clients=1, num_rounds=1, rank=4, seeds=[0],
+        results=[
+            StrategyResult(
+                strategy="fedex-lora", seed=0,
+                final_task_metric={"note": "no_eval_data"},
+                frobenius_error=0.0,
+            ),
+        ],
+    )
+    out = tmp_path / "r.md"
+    report.to_markdown(out)  # must not raise
+    md = out.read_text()
+    assert "no_eval_data" in md
