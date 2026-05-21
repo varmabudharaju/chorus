@@ -469,5 +469,63 @@ def privacy_budget(client_id: str, model_id: str, server: str, api_key: str | No
     console.print(table)
 
 
+@cli.command("eval")
+@click.option(
+    "--config",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False),
+    help="Path to YAML config",
+)
+@click.option(
+    "--check-only",
+    is_flag=True,
+    default=False,
+    help="Validate config + wiring, do NOT load model or train",
+)
+@click.option(
+    "--output-dir",
+    default=None,
+    type=click.Path(file_okay=False),
+    help="Override output directory",
+)
+def eval_cmd(config: str, check_only: bool, output_dir: str | None):
+    """Run an evaluation against a YAML config (see benchmarks/configs/)."""
+    from chorus.eval import EvalConfig, EvalRunner
+    from chorus.exceptions import EvalConfigError
+
+    try:
+        cfg = EvalConfig.from_yaml(config)
+    except EvalConfigError as e:
+        console.print(f"[red]Config error: {e}[/red]")
+        raise SystemExit(1)
+
+    if output_dir is not None:
+        cfg.output_dir = output_dir
+
+    runner = EvalRunner(cfg)
+
+    if check_only:
+        try:
+            runner.check_only()
+        except EvalConfigError as e:
+            console.print(f"[red]Check-only failed: {e}[/red]")
+            raise SystemExit(1)
+        console.print(
+            f"[green]check-only OK[/green] — model: {cfg.model_id}, "
+            f"clients: {cfg.num_clients}, strategies: {cfg.strategies}"
+        )
+        return
+
+    console.print(
+        f"[bold]Running eval[/bold] — {cfg.model_id}, {cfg.num_clients} clients, "
+        f"{cfg.num_rounds} rounds"
+    )
+    report = runner.run()
+    console.print(
+        f"[green]Eval complete[/green] — {len(report.results)} results, "
+        f"output in {cfg.output_dir}"
+    )
+
+
 if __name__ == "__main__":
     cli()
