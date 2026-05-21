@@ -18,8 +18,8 @@
 | # | Feature | Branch | Issue | Detailed plan | Est | Depends on | Status |
 |---|---|---|---|---|---|---|---|
 | F1 | CI pipeline | `feat/ci-pipeline` | #2 | `2026-05-19-feature-1-ci-pipeline.md` | 3 days | — | ✅ merged (PR #3) |
-| F2 | DP accountant | `feat/dp-accountant` | TBD on kickoff | `2026-05-19-feature-2-dp-accountant.md` | 1.5 weeks | F1 | planning |
-| F3 | Eval harness (`chorus.eval` + `chorus eval` CLI) | `feat/eval-harness` | TBD on kickoff | written when F3 kicks off | 2.5 weeks | F1 | pending |
+| F2 | DP accountant | `feat/dp-accountant` | #8 | `2026-05-19-feature-2-dp-accountant.md` | 1.5 weeks | F1 | ✅ merged (PR #9) |
+| F3 | Eval harness (`chorus.eval` + `chorus eval` CLI) | `feat/eval-harness` | TBD on kickoff | `2026-05-20-feature-3-eval-harness.md` | 2.5 weeks | F1 | planning |
 | F4 | Benchmark suite (configs + runner + smoke verifier) | `feat/benchmark-suite` | TBD on kickoff | written when F4 kicks off | 1 week | F3 | pending |
 | F5 | README rewrite + `docs/honest-tradeoffs.md` | `feat/honest-tradeoffs` | TBD on kickoff | written when F5 kicks off | 4 days | F2, F3, F4 | pending |
 | F6 | v0.2.0 release (version bump, CHANGELOG, PyPI, GH release) | `release/v0.2.0` | TBD on kickoff | written when F6 kicks off | 1 day | F1–F5 + benchmark compute run | pending |
@@ -259,7 +259,11 @@ Phase 1 is done when:
 
 - **F1 — CI pipeline.** Merged 2026-05-19 in PR [#3](https://github.com/varmabudharaju/chorus/pull/3), closing issue [#2](https://github.com/varmabudharaju/chorus/issues/2). Adds `.github/workflows/ci.yml` (ruff + pytest matrixed across Python 3.10/3.11/3.12), CI status badge in README, and fixes 35 pre-existing ruff lint issues in a separate preceding commit. CI green on master.
   - **Deviation from plan:** plan said "file a follow-up issue for pre-existing ruff failures, don't fix them in this PR." Implementer fixed them inline instead, because leaving 35 ruff violations would have made CI permanently red on day 1. Spec reviewer judged the deviation defensible; code quality reviewer confirmed no behavior changes in the fixes.
-  - **Follow-up issues filed:** [#5](https://github.com/varmabudharaju/chorus/issues/5) (concurrency group polish), [#6](https://github.com/varmabudharaju/chorus/issues/6) (SHA-pin actions, deferred to Phase 4).
+  - **Follow-up issues filed:** [#5](https://github.com/varmabudharaju/chorus/issues/5) (concurrency group polish — resolved in PR [#10](https://github.com/varmabudharaju/chorus/pull/10)), [#6](https://github.com/varmabudharaju/chorus/issues/6) (SHA-pin actions, deferred to Phase 4).
+
+- **F2 — DP accountant.** Merged 2026-05-19 in PR [#9](https://github.com/varmabudharaju/chorus/pull/9), closing issue [#8](https://github.com/varmabudharaju/chorus/issues/8). Adds `chorus/privacy/` package with `PrivacyAccountant` (RDP composition via Google's `dp-accounting`, `opacus` fallback). Persists per-(model_id, client_id) accountants to disk; restored on server startup. Submission endpoint rejects with 403 when client budget is exhausted. New endpoint `GET /models/{model_id}/clients/{client_id}/privacy`. Client SDK gains `max_epsilon` parameter; raises `PrivacyBudgetExhaustedError`. New CLI `chorus privacy budget`. Test count 165 → 188.
+  - **Review iterations:** 3 implementer passes + 2 code-review rounds. Code quality reviewer caught 4 real bugs that spec compliance and self-review missed: (1) `chorus/privacy/__init__.py` eager-imported `PrivacyAccountant`, breaking `import chorus` for users without `[privacy]` extra; (2) `step()` gated on `dp_applied` made the budget a silent no-op when only client-side DP was used; (3) client SDK didn't map server's HTTP 403 → `PrivacyBudgetExhaustedError`; (4) ordering bug introduced during the fix for (2) — step() ran before save_delta(), burning budget on `DuplicateClientError` 409s.
+  - **F1/F2 cleanup PR:** [#10](https://github.com/varmabudharaju/chorus/pull/10) merged five followups: CI concurrency PR-scoping (closed #5), client warning when `max_epsilon` set without server accounting, dropped unused `backend` constructor param from `PrivacyAccountant`, rewrote bogus import-without-extra test, added double-checked locking to `_ensure_accountant` to fix the concurrent-first-call race the F2 code reviewer had flagged as non-blocking. Test count 188 → 195.
 
 ---
 
