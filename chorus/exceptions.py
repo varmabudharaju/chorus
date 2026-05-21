@@ -35,3 +35,7 @@ class PrivacyBudgetExhaustedError(ChorusError):
     The accompanying message includes the model_id, client_id, target_epsilon,
     and consumed_epsilon so the user can adjust their training plan.
     """
+
+
+class EvalConfigError(ChorusError):
+    """Raised when a chorus.eval config is malformed or references missing resources."""
