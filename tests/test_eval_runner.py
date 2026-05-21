@@ -47,6 +47,7 @@ def test_runner_check_only_does_not_train(tmp_path: Path):
     runner.check_only()
 
 
+@pytest.mark.network
 def test_multi_round_logs_warning(caplog, tmp_path):
     """num_rounds > 1 should log a warning explaining the collapsed semantics."""
     if os.environ.get("CHORUS_SKIP_HF_NETWORK"):
