@@ -53,6 +53,16 @@ class EvalRunner:
     def run(self) -> EvalReport:
         """Run the full evaluation; return a report comparing strategies."""
         cfg = self.config
+        if cfg.num_rounds > 1:
+            logger.warning(
+                "num_rounds=%d but the v0.2.0 eval harness collapses multi-round "
+                "training (each round retrains from the base model with the same "
+                "seed and data). Total runtime will be num_rounds × single-round "
+                "time but the final aggregated result is equivalent to num_rounds=1. "
+                "Multi-round federation with cross-round state is a planned Feature 4 "
+                "extension.",
+                cfg.num_rounds,
+            )
         logger.info(
             "EvalRunner starting: model=%s, clients=%d, rounds=%d, strategies=%s",
             cfg.model_id,
