@@ -97,6 +97,7 @@ def partition_non_iid_dirichlet(
         proportions = rng.dirichlet([alpha] * num_clients)
         # Compute split points
         cuts = (np.cumsum(proportions) * len(idxs)).astype(int)
+        cuts[-1] = len(idxs)  # guard against float truncation dropping the last item(s)
         prev = 0
         for c, cut in enumerate(cuts):
             for j in idxs[prev:cut]:

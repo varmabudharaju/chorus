@@ -78,3 +78,13 @@ class TestDirichlet:
                     continue
                 fracs.append(sum(1 for ex in p if ex["label"] == cls) / len(p))
             assert max(fracs) - min(fracs) < 0.3, f"Class {cls} fractions too varied: {fracs}"
+
+    def test_dirichlet_no_data_loss_across_many_seeds(self):
+        """Across 50 different seeds and odd dataset sizes, sum must always equal len(dataset)."""
+        for seed in range(50):
+            # Use sizes that don't divide evenly to expose float truncation
+            ds = _make_fake_dataset(101, n_classes=5)  # 101 is prime
+            parts = partition_non_iid_dirichlet(ds, num_clients=4, alpha=0.5, seed=seed)
+            assert sum(len(p) for p in parts) == 101, (
+                f"Data loss at seed={seed}: {sum(len(p) for p in parts)} != 101"
+            )
