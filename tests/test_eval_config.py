@@ -1,5 +1,6 @@
 """Tests for EvalConfig dataclass + YAML loader."""
 
+import logging
 import textwrap
 from pathlib import Path
 
@@ -117,6 +118,27 @@ class TestOptionalFields:
         """)
         with pytest.raises(EvalConfigError, match="length"):
             EvalConfig.from_yaml(p)
+
+
+class TestUnknownKeys:
+    def test_from_dict_warns_on_unknown_keys(self, caplog):
+        """Unknown YAML keys should be ignored with a warning, not silently dropped."""
+        data = {
+            "model_id": "x",
+            "dataset": {"name": "t", "split": "train"},
+            "num_clients": 2,
+            "num_rounds": 1,
+            "strategies": ["fedex-lora"],
+            "rank": 4,
+            "seeds": [0],
+            "stratigies": ["fedavg"],  # typo of "strategies" — should be flagged
+            "totally_made_up_key": 42,
+        }
+        with caplog.at_level(logging.WARNING, logger="chorus.eval.config"):
+            EvalConfig.from_dict(data)
+        msgs = " ".join(r.message for r in caplog.records)
+        assert "stratigies" in msgs
+        assert "totally_made_up_key" in msgs
 
 
 class TestValidation:
