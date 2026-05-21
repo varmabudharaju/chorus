@@ -1,0 +1,18 @@
+# CI smoke config — runs in seconds via --check-only, in ~1 min via full run.
+# Used by .github/workflows/ci.yml.
+
+model_id: hf-internal-testing/tiny-random-LlamaForCausalLM
+dataset:
+  name: synthetic-tiny
+  split: train
+  max_examples: 16
+num_clients: 2
+num_rounds: 1
+strategies: [fedavg, fedex-lora]
+rank: 4
+seeds: [0]
+max_steps_per_round: 2
+eval_batch_size: 2
+target_modules: [q_proj, v_proj]
+partition: iid
+output_dir: benchmarks/results/smoke
