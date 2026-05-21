@@ -317,11 +317,21 @@ class EvalRunner:
         peft_model = get_peft_model(base, lora_cfg)
         # Load aggregated adapter into the peft model
         peft_state = peft_model.state_dict()
+        matched = 0
         for k, v in aggregated.items():
             # PEFT may expect the "base_model.model." prefix
             cand = k if k in peft_state else f"base_model.model.{k}"
             if cand in peft_state:
                 peft_state[cand] = v.to(peft_state[cand].dtype)
+                matched += 1
+        if matched == 0 and aggregated:
+            logger.warning(
+                "No aggregated adapter weights matched PEFT state_dict keys (%d aggregated, "
+                "0 matched). Evaluation will reflect the BASE model + freshly-initialised "
+                "adapter, not the trained weights. Check that model_id matches the adapter "
+                "training run.",
+                len(aggregated),
+            )
         peft_model.load_state_dict(peft_state, strict=False)
         peft_model.eval()
 
