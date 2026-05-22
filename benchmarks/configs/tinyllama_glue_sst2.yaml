@@ -1,0 +1,20 @@
+# TinyLlama on GLUE/SST-2 (sentiment classification).
+# Small-model sanity check: confirms the pipeline works on a real classification
+# task, not just synthetic LM data. ~5 min/run on CPU; ~30s on A100.
+
+model_id: TinyLlama/TinyLlama-1.1B-Chat-v1.0
+dataset:
+  name: glue
+  config_name: sst2
+  split: train
+  max_examples: 2000
+num_clients: 5
+num_rounds: 3
+strategies: [fedavg, fedex-lora]
+rank: 8
+seeds: [0, 1, 2]
+max_steps_per_round: 100
+eval_batch_size: 8
+target_modules: [q_proj, v_proj]
+partition: iid
+output_dir: benchmarks/results/v0.2.0/tinyllama_glue_sst2
