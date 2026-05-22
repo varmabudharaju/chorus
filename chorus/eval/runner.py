@@ -19,7 +19,8 @@ from chorus.eval.datasets import load_dataset_for_eval, partition_iid, partition
 from chorus.eval.metrics import compute_perplexity_from_loss, frobenius_reconstruction_error
 from chorus.eval.report import EvalReport, StrategyResult
 from chorus.exceptions import EvalConfigError
-from chorus.server.aggregation import get_strategy
+from chorus.privacy.mechanism import apply_dp
+from chorus.server.aggregation import FedExLoRA, get_strategy
 
 logger = logging.getLogger("chorus.eval")
 
@@ -53,16 +54,6 @@ class EvalRunner:
     def run(self) -> EvalReport:
         """Run the full evaluation; return a report comparing strategies."""
         cfg = self.config
-        if cfg.num_rounds > 1:
-            logger.warning(
-                "num_rounds=%d but the v0.2.0 eval harness collapses multi-round "
-                "training (each round retrains from the base model with the same "
-                "seed and data). Total runtime will be num_rounds × single-round "
-                "time but the final aggregated result is equivalent to num_rounds=1. "
-                "Multi-round federation with cross-round state is a planned Feature 4 "
-                "extension.",
-                cfg.num_rounds,
-            )
         logger.info(
             "EvalRunner starting: model=%s, clients=%d, rounds=%d, strategies=%s",
             cfg.model_id,
@@ -84,13 +75,17 @@ class EvalRunner:
             for seed in cfg.seeds:
                 logger.info("Running strategy=%s seed=%d", strategy_name, seed)
                 t_start = time.time()
-                client_deltas, per_round_times = self._train_clients_and_collect_deltas(
-                    client_partitions,
-                    strategy_name,
-                    seed,
+                client_deltas, per_round_times, accumulated_residuals = (
+                    self._train_clients_and_collect_deltas(
+                        client_partitions,
+                        strategy_name,
+                        seed,
+                    )
                 )
                 aggregated = get_strategy(strategy_name).aggregate(client_deltas)
-                frob = frobenius_reconstruction_error(aggregated, client_deltas)
+                frob = frobenius_reconstruction_error(
+                    aggregated, client_deltas, extra_base=accumulated_residuals
+                )
                 task_metric = self._evaluate_aggregated(aggregated, eval_data)
                 t_total = time.time() - t_start
                 results.append(
@@ -192,19 +187,32 @@ class EvalRunner:
         partitions: list[list[dict[str, Any]]],
         strategy: str,
         seed: int,
-    ) -> tuple[list[dict[str, torch.Tensor]], list[float]]:
-        """Train a LoRA adapter on each client partition; return list of deltas + per-round times.
+    ) -> tuple[list[dict[str, torch.Tensor]], list[float], dict[str, torch.Tensor]]:
+        """Train a LoRA adapter on each client partition; return list of deltas, per-round times,
+        and accumulated residuals.
 
-        Per-round-time is approximated as total client training time / num_rounds (one
-        round = all clients train once then aggregate; we simulate by training all clients
-        upfront and aggregating at the end). For multi-round, this is repeated.
+        For multi-round runs with strategy=fedex-lora and fold_residuals=True:
+        - After each round's aggregation, residuals are retrieved from FedExLoRA and
+          accumulated into a running dict keyed by layer name.
+        - The accumulated residuals are returned so the caller can account for the folded
+          information when computing the Frobenius reconstruction error.
+
+        When fold_residuals=False OR strategy!=fedex-lora, accumulated_residuals is
+        always empty (preserving the pre-v0.2.1 single-round semantics for those cases).
+
+        DP noise (#20): if cfg.dp_epsilon is not None, each client's delta is noised via
+        apply_dp() before being passed to the aggregator.  When cfg.dp_epsilon is None no
+        noise is added (current behavior — explicit).
         """
-        deltas: list[dict[str, torch.Tensor]] = []
-        per_round_times: list[float] = []
         cfg = self.config
+        per_round_times: list[float] = []
+        accumulated_residuals: dict[str, torch.Tensor] = {}
+        # Whether to attempt residual folding this run
+        do_fold = cfg.fold_residuals and strategy == "fedex-lora"
 
         torch.manual_seed(seed)
 
+        deltas: list[dict[str, torch.Tensor]] = []
         for _round_idx in range(cfg.num_rounds):
             t0 = time.time()
             round_deltas: list[dict[str, torch.Tensor]] = []
@@ -213,14 +221,39 @@ class EvalRunner:
                     cfg.heterogeneous_rank[client_idx] if cfg.heterogeneous_rank else cfg.rank
                 )
                 delta = self._train_one_client(partition, client_rank, seed=seed + client_idx)
+
+                # Issue #20: apply DP noise to each client delta before aggregation
+                if cfg.dp_epsilon is not None:
+                    delta = apply_dp(
+                        delta,
+                        epsilon=cfg.dp_epsilon,
+                        delta=cfg.dp_delta,
+                        max_norm=cfg.dp_max_norm,
+                    )
+
                 round_deltas.append(delta)
             per_round_times.append(time.time() - t0)
-            # For multi-round, we'd aggregate here and re-broadcast. For the v0.2.0
-            # eval harness we simulate one-shot aggregation per round; the final round's
-            # deltas are what gets returned.
+
+            # Issue #19: aggregate per-round and capture residuals when folding is enabled
+            if do_fold and cfg.num_rounds > 1:
+                # Create a fresh FedExLoRA instance to aggregate this round's deltas and
+                # retrieve the SVD residuals.
+                strategy_instance = FedExLoRA()
+                strategy_instance.aggregate(round_deltas)
+                round_residuals = strategy_instance.get_residuals()
+                # Accumulate residuals across rounds (additive — each round's residual
+                # is the information the rank-r adapter could not represent that round)
+                for layer_name, residual in round_residuals.items():
+                    if layer_name in accumulated_residuals:
+                        accumulated_residuals[layer_name] = (
+                            accumulated_residuals[layer_name].float() + residual.float()
+                        ).to(residual.dtype)
+                    else:
+                        accumulated_residuals[layer_name] = residual.clone()
+
             deltas = round_deltas
 
-        return deltas, per_round_times
+        return deltas, per_round_times, accumulated_residuals
 
     def _train_one_client(
         self,

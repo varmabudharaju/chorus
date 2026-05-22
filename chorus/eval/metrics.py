@@ -20,15 +20,29 @@ def frobenius_reconstruction_error(
     aggregated: dict[str, torch.Tensor],
     client_deltas: list[dict[str, torch.Tensor]],
     weights: list[float] | None = None,
+    extra_base: dict[str, torch.Tensor] | None = None,
 ) -> float:
-    """Frobenius norm of (exact_avg(B_i @ A_i) - aggregated_B @ aggregated_A), maxed over layers."""
+    """Frobenius norm of (exact_avg(B_i @ A_i) - reconstruction), maxed over layers.
+
+    Args:
+        aggregated: The aggregated adapter from the final round (B, A tensors).
+        client_deltas: Per-client deltas from the final round.
+        weights: Per-client weights; uniform if None.
+        extra_base: Optional accumulated residuals from prior rounds that have
+            been folded into the base model (keyed by layer name, dense matrices).
+            When provided, the reconstruction is (extra_base[layer] + B_new @ A_new),
+            reflecting the total effective update across all rounds.  When
+            fold_residuals=True and strategy=fedex-lora, passing the accumulated
+            residuals here gives a lower (more accurate) Frobenius error vs the
+            fold_residuals=False case where extra_base is empty.
+    """
     n = len(client_deltas)
     if weights is None:
         weights = [1.0 / n] * n
 
     pairs = get_layer_pairs(client_deltas[0])
     max_err = 0.0
-    for _layer_name, (a_key, b_key) in pairs.items():
+    for layer_name, (a_key, b_key) in pairs.items():
         # Exact: sum w_i * B_i @ A_i
         exact = torch.zeros_like(
             client_deltas[0][b_key].float() @ client_deltas[0][a_key].float()
@@ -37,10 +51,12 @@ def frobenius_reconstruction_error(
             if a_key in d and b_key in d:
                 exact += weights[i] * (d[b_key].float() @ d[a_key].float())
 
-        # Reconstructed from aggregated:
+        # Reconstructed from aggregated adapter plus any folded residuals from prior rounds.
         if a_key not in aggregated or b_key not in aggregated:
             continue
         recon = aggregated[b_key].float() @ aggregated[a_key].float()
+        if extra_base and layer_name in extra_base:
+            recon = recon + extra_base[layer_name].float()
         err = torch.norm(exact - recon).item()
         max_err = max(max_err, err)
 
