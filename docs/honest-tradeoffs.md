@@ -50,12 +50,6 @@ same rank-r approximation FedAvg gives you — not exact.
 - Running without uploading base weights. The aggregation still runs and produces
   a valid rank-r adapter, but residuals accumulate in memory and are never folded.
   Clients pulling the adapter get the per-round approximation, not the exact result.
-- The `chorus.eval` harness (`chorus/eval/runner.py`) does **not** yet thread
-  `fold_residuals` through its training loop (issue
-  [#19](https://github.com/varmabudharaju/chorus/issues/19)). Eval-harness
-  comparisons of `fedex-lora` vs `fedavg` measure the per-round aggregation
-  step only; the across-round exactness guarantee that real federated training
-  produces is not exercised until #19 closes and the v0.2.0 GPU run completes.
 
 **Bandwidth cost:**
 
@@ -113,11 +107,6 @@ the server. Without them, privacy loss accumulates unbounded.
 - Running with `--dp-epsilon` set but no accountant flags. The server noises
   every round but no upper bound is enforced. Privacy loss accumulates
   indefinitely across rounds with no halt.
-- The `chorus.eval` harness does **not** yet apply DP to client deltas (issue
-  [#20](https://github.com/varmabudharaju/chorus/issues/20)). DP-ablation YAMLs
-  in the benchmark suite currently produce identical numbers across `dp_epsilon`
-  values because `EvalRunner._train_clients_and_collect_deltas()` submits raw
-  deltas without noising. Published DP-on vs DP-off numbers wait on #20.
 
 ---
 
@@ -301,8 +290,6 @@ for multi-tenant production deployments.
 
 | Sharp edge | Fix lands in | Tracked by |
 |---|---|---|
-| Eval-harness `fold_residuals` threading | Pre-v0.2.0 GPU run | [#19](https://github.com/varmabudharaju/chorus/issues/19) |
-| Eval-harness `dp_epsilon` threading | Pre-v0.2.0 GPU run | [#20](https://github.com/varmabudharaju/chorus/issues/20) |
 | Target-module-mismatch warning | Phase 2 polish | not yet filed |
 | Real Byzantine-robust aggregation (Krum, coordinate-wise median) | Phase 2 | `docs/superpowers/specs/2026-05-19-chorus-roadmap.md` |
 | Per-(model, client) API keys and scoped permissions | Phase 4 | `docs/superpowers/specs/2026-05-19-chorus-roadmap.md` |
