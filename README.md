@@ -25,6 +25,19 @@ Client 1 (private data)          Aggregation Server           Client 2 (private 
 └─────────────────────┘       └─────────────────────┘       └─────────────────────┘
 ```
 
+## Honest tradeoffs
+
+Chorus's claims hold under conditions that aren't always obvious from a quickstart.
+Before relying on any of them, read [docs/honest-tradeoffs.md](docs/honest-tradeoffs.md).
+Highlights:
+
+- **"Mathematically exact" aggregation** holds when residuals are folded into base weights every round — the default server path, but not yet the eval harness ([#19](https://github.com/varmabudharaju/chorus/issues/19)). [More](docs/honest-tradeoffs.md#exactness)
+- **Differential privacy** is per-submission Gaussian noise with a stateful accountant — but only if you set `--accountant-target-epsilon` on the server. Without it, privacy loss accumulates unbounded. [More](docs/honest-tradeoffs.md#differential-privacy)
+- **"Byzantine defenses"** are sanity checks against naive attackers (norm bound + z-score outlier). They will not stop an adaptive adversary. Real Byzantine-robust aggregation is on the Phase 2 roadmap. [More](docs/honest-tradeoffs.md#byzantine-robustness)
+- **API keys are global.** No per-model scoping in v0.2.0. Run one server per trust boundary. [More](docs/honest-tradeoffs.md#multi-tenant-scope)
+- **Heterogeneous-rank clients** work on `fedex-lora` and crash on `fedavg`. [More](docs/honest-tradeoffs.md#heterogeneous-clients)
+- **Alpha software:** single-process server, in-memory rate limiter, filesystem storage, HTTP. Not hardened for multi-tenant production. [More](docs/honest-tradeoffs.md#production-readiness)
+
 ## Installation
 
 ```bash
