@@ -5,7 +5,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![PyPI version](https://img.shields.io/pypi/v/chorus-fl.svg)](https://pypi.org/project/chorus-fl/)
 
-**Federated LoRA fine-tuning with mathematically exact aggregation.**
+**Federated LoRA fine-tuning with mathematically exact aggregation — when residuals are folded into base weights every round ([details](docs/honest-tradeoffs.md#exactness)).**
 
 Chorus is a framework for federated fine-tuning of large language models using LoRA adapters. Multiple clients train on their private data, submit adapter deltas to a central server, and receive back aggregated improvements — without sharing any raw data.
 
