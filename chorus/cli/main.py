@@ -72,6 +72,18 @@ def cli():
 )
 @click.option("--min-deltas", default=2, help="Minimum deltas before aggregation triggers")
 @click.option("--dp-epsilon", type=float, default=None, help="Server-side DP epsilon (disabled if not set)")
+@click.option(
+    "--accountant-target-epsilon",
+    type=float,
+    default=None,
+    help="Privacy budget cap. Server refuses submissions from a client once ε consumed reaches this. Required to bound DP loss across rounds.",
+)
+@click.option(
+    "--accountant-noise-multiplier",
+    type=float,
+    default=None,
+    help="Noise multiplier σ for the RDP accountant (required when --accountant-target-epsilon is set).",
+)
 @click.option("--api-key", multiple=True, help="API key(s) for authentication (can specify multiple)")
 @click.option("--base-weights", type=click.Path(exists=True), default=None, help="Path to base model weights (.safetensors)")
 @click.option("--norm-bound", type=float, default=None, help="Max L2 norm for Byzantine defense (disabled if not set)")
@@ -79,9 +91,15 @@ def cli():
 @click.option("--rate-limit", type=int, default=0, help="Max requests per minute per IP (0 = disabled)")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose logging")
 @handle_errors
-def server(model, port, host, data_dir, strategy, min_deltas, dp_epsilon, api_key, base_weights, norm_bound, outlier_threshold, rate_limit, verbose):
+def server(model, port, host, data_dir, strategy, min_deltas, dp_epsilon, accountant_target_epsilon, accountant_noise_multiplier, api_key, base_weights, norm_bound, outlier_threshold, rate_limit, verbose):
     """Start the Chorus aggregation server."""
     _setup_logging(verbose)
+
+    if (accountant_target_epsilon is None) != (accountant_noise_multiplier is None):
+        raise click.UsageError(
+            "--accountant-target-epsilon and --accountant-noise-multiplier must be set together; "
+            "you provided one without the other."
+        )
 
     from chorus.server.app import configure
 
@@ -91,6 +109,8 @@ def server(model, port, host, data_dir, strategy, min_deltas, dp_epsilon, api_ke
         strategy=strategy,
         min_deltas=min_deltas,
         dp_epsilon=dp_epsilon,
+        accountant_target_epsilon=accountant_target_epsilon,
+        accountant_noise_multiplier=accountant_noise_multiplier,
         api_keys=list(api_key) if api_key else None,
         norm_bound=norm_bound,
         outlier_threshold=outlier_threshold,
@@ -110,6 +130,13 @@ def server(model, port, host, data_dir, strategy, min_deltas, dp_epsilon, api_ke
     console.print(f"  Strategy: {strategy}")
     console.print(f"  Min deltas: {min_deltas}")
     console.print(f"  DP epsilon: {dp_epsilon or 'disabled'}")
+    if accountant_target_epsilon is not None:
+        console.print(
+            f"  Accountant: target ε={accountant_target_epsilon}, "
+            f"σ={accountant_noise_multiplier}"
+        )
+    else:
+        console.print("  Accountant: disabled (privacy loss unbounded if --dp-epsilon is set)")
     console.print(f"  Listening: {host}:{port}")
     console.print()
 

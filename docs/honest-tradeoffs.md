@@ -73,15 +73,8 @@ Chorus implements Gaussian-mechanism DP at the per-submission level and tracks
 composition with a stateful privacy accountant (RDP via Google's `dp-accounting`,
 `opacus` fallback). The server will **refuse further submissions** once a configured
 `(epsilon, delta)` budget is exhausted — but only if you opt in to the accountant
-by passing `accountant_target_epsilon` to `chorus.server.app.configure()`. Without
-it, privacy loss accumulates unbounded.
-
-> **CLI gap (v0.2.0):** the `chorus server` command does not yet expose
-> `--accountant-target-epsilon` or `--accountant-noise-multiplier` ([issue
-> #25](https://github.com/varmabudharaju/chorus/issues/25)). To bound privacy
-> loss today you must drive the server programmatically: import
-> `chorus.server.app.configure` and pass the two kwargs yourself. The CLI flags
-> land before v0.2.0 ships; this gap will be removed once #25 closes.
+by setting `--accountant-target-epsilon` and `--accountant-noise-multiplier` on
+the server. Without them, privacy loss accumulates unbounded.
 
 **What the code does today:**
 
@@ -108,21 +101,18 @@ it, privacy loss accumulates unbounded.
 
 **Safe to do:**
 
-- Configure `--dp-epsilon` on the server (per-submission noise) AND drive
-  `configure(..., accountant_target_epsilon=..., accountant_noise_multiplier=...)`
-  programmatically for accountant enforcement (until [#25](https://github.com/varmabudharaju/chorus/issues/25)
-  exposes both via the CLI). Together they noise every submission and halt
-  before the budget limit.
+- Configure `--dp-epsilon` (per-submission noise) together with
+  `--accountant-target-epsilon` and `--accountant-noise-multiplier` (accountant
+  enforcement) on the server. The three flags must be set together for bounded
+  DP loss; the CLI rejects partial configurations.
 - Verify the accountant is active by hitting `GET
   /models/{id}/clients/{client_id}/privacy` and checking `epsilon_consumed`.
 
 **Unsafe / surprising:**
 
-- Running with `--dp-epsilon` set but no accountant configured. The server
-  noises every round but no upper bound is enforced. Privacy loss accumulates
-  indefinitely across rounds with no halt. This is the default when you launch
-  via `chorus server` today, because the CLI does not yet wire the accountant
-  kwargs ([#25](https://github.com/varmabudharaju/chorus/issues/25)).
+- Running with `--dp-epsilon` set but no accountant flags. The server noises
+  every round but no upper bound is enforced. Privacy loss accumulates
+  indefinitely across rounds with no halt.
 - The `chorus.eval` harness does **not** yet apply DP to client deltas (issue
   [#20](https://github.com/varmabudharaju/chorus/issues/20)). DP-ablation YAMLs
   in the benchmark suite currently produce identical numbers across `dp_epsilon`
@@ -313,7 +303,6 @@ for multi-tenant production deployments.
 |---|---|---|
 | Eval-harness `fold_residuals` threading | Pre-v0.2.0 GPU run | [#19](https://github.com/varmabudharaju/chorus/issues/19) |
 | Eval-harness `dp_epsilon` threading | Pre-v0.2.0 GPU run | [#20](https://github.com/varmabudharaju/chorus/issues/20) |
-| `chorus server` CLI flags for accountant enforcement | Pre-v0.2.0 release | [#25](https://github.com/varmabudharaju/chorus/issues/25) |
 | Target-module-mismatch warning | Phase 2 polish | not yet filed |
 | Real Byzantine-robust aggregation (Krum, coordinate-wise median) | Phase 2 | `docs/superpowers/specs/2026-05-19-chorus-roadmap.md` |
 | Per-(model, client) API keys and scoped permissions | Phase 4 | `docs/superpowers/specs/2026-05-19-chorus-roadmap.md` |
