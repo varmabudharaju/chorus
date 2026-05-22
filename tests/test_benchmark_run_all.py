@@ -3,8 +3,6 @@
 from pathlib import Path
 import textwrap
 
-import pytest
-
 
 def _write_sweep(tmp_path: Path) -> Path:
     p = tmp_path / "tiny_sweep.yaml"
