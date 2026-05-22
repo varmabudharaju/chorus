@@ -1,0 +1,78 @@
+name: release
+
+# Runs only on tag pushes matching v*.*.* (semver). Bypassed for branch pushes.
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+# Concurrency: only one release at a time, no cancellation (don't kill mid-publish).
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Smoke test before publish
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,peft,privacy]"
+      - name: Lint
+        run: ruff check chorus tests benchmarks
+      - name: Test
+        run: pytest -m "not network" -q
+
+  build:
+    name: Build distribution
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install build
+      - name: Build wheel + sdist
+        run: python -m build
+      - name: Upload distribution as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: chorus-fl-dist
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # required for OIDC / trusted publishing
+    steps:
+      - name: Download distribution
+        uses: actions/download-artifact@v4
+        with:
+          name: chorus-fl-dist
+          path: dist
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        # No `with:` block — credentials come from OIDC via the trusted publisher
+        # configured at https://pypi.org/manage/project/chorus-fl/settings/publishing/
