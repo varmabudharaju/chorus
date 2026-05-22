@@ -36,7 +36,7 @@ Benchmark numbers from the v0.2.0 paid GPU run will land in a follow-up PR (`cho
 ### Test coverage
 
 - v0.1.0: 165 tests passing.
-- v0.2.0 baseline: **249 tests passing** on `pytest -m "not network"`. Two additional tests are gated behind `@pytest.mark.network` (fold-residuals and DP-epsilon end-to-end on `hf-internal-testing/tiny-random-LlamaForCausalLM`); both pass locally with a warm HF cache.
+- v0.2.0: **250 tests passing** on `pytest -m "not network"`. Four additional tests are gated behind `@pytest.mark.network` (fold-residuals and DP-epsilon end-to-end on `hf-internal-testing/tiny-random-LlamaForCausalLM`, plus the F3 multi-round and full-run tests); all pass locally with a warm HF cache.
 
 ### Known gaps shipping with this release
 
