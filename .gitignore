@@ -27,3 +27,5 @@ wandb/
 # Experimentation artifacts
 notebooks/
 results/
+!benchmarks/results/
+benchmarks/results/smoke/
