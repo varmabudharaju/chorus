@@ -21,7 +21,15 @@ def frobenius_reconstruction_error(
     client_deltas: list[dict[str, torch.Tensor]],
     weights: list[float] | None = None,
 ) -> float:
-    """Frobenius norm of (exact_avg(B_i @ A_i) - aggregated_B @ aggregated_A), maxed over layers."""
+    """Frobenius norm of (exact_avg(B_i @ A_i) - aggregated_B @ aggregated_A), maxed over layers.
+
+    Per-round measure: how well the rank-r aggregated adapter approximates the
+    exact weighted sum of the round's client deltas. For multi-round fold=True
+    runs, the cross-round dynamics surface naturally because EvalRunner injects
+    accumulated residuals into the base model before each round's clients
+    train, so the final round's deltas differ from the fold=False arm's deltas.
+    No metric-side cross-round accumulation is needed.
+    """
     n = len(client_deltas)
     if weights is None:
         weights = [1.0 / n] * n
