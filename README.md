@@ -364,6 +364,10 @@ chorus train \
   --lora-rank 16
 ```
 
+### Production readiness
+
+Chorus is **alpha software** in v0.2.0. Suitable for research, small internal federations, and benchmarks; not hardened for multi-tenant production. Single-process FastAPI server, in-memory rate limiter, filesystem storage, HTTP (terminate TLS at a reverse proxy). API keys are global — run one server per trust boundary. See [docs/honest-tradeoffs.md#production-readiness](docs/honest-tradeoffs.md#production-readiness) for the full list of caveats and what's on the roadmap to fix each.
+
 ## Examples
 
 See the [`examples/`](examples/) directory:
