@@ -137,9 +137,12 @@ def test_runner_run_produces_report_with_both_strategies(tmp_path: Path):
 def test_fold_residuals_produces_different_frobenius_than_no_fold(tmp_path: Path):
     """fold_residuals=True vs False must produce different Frobenius errors over num_rounds>=2.
 
-    When fold_residuals=True, accumulated residuals from each FedExLoRA round are
-    included in the Frobenius reconstruction error computation, producing a lower
-    (more accurate) error than fold_residuals=False where residuals are discarded.
+    With fold_residuals=True, each round's FedExLoRA residuals are folded into the
+    base model weights before the next round's clients train (chorus/server/weight_manager.py
+    fold helper, mirroring the server path). The final round's client deltas
+    therefore differ between fold=True and fold=False because they were trained
+    against different effective base models. That difference shows up as a
+    different per-round Frobenius reconstruction error.
     """
     if os.environ.get("CHORUS_SKIP_HF_NETWORK"):
         pytest.skip("Skipping test that requires HF model download")
@@ -174,12 +177,10 @@ def test_fold_residuals_produces_different_frobenius_than_no_fold(tmp_path: Path
         f"fold_residuals=False ({frob_nofold:.6f}) to produce different Frobenius errors, "
         "but they are identical. The fold_residuals path is not being exercised."
     )
-    # With folding, the accumulated residuals reduce the reconstruction error —
-    # fold_on should be <= fold_off (the inequality may be strict for any non-trivial input)
-    assert frob_fold <= frob_nofold, (
-        f"Expected fold_residuals=True ({frob_fold:.6f}) <= fold_residuals=False "
-        f"({frob_nofold:.6f}): folding should improve (reduce) Frobenius error."
-    )
+    # The directional claim (fold reduces or increases error) depends on data
+    # and noise floor; on a tiny synthetic dataset both signs are plausible. The
+    # only contract we lock in here is that the two paths produce *different*
+    # numbers, which proves the cross-round base re-injection is wired up.
 
 
 # ---------------------------------------------------------------------------

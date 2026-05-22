@@ -21,6 +21,7 @@ from chorus.eval.report import EvalReport, StrategyResult
 from chorus.exceptions import EvalConfigError
 from chorus.privacy.mechanism import apply_dp
 from chorus.server.aggregation import FedExLoRA, get_strategy
+from chorus.server.weight_manager import fold_residuals_into_base
 
 logger = logging.getLogger("chorus.eval")
 
@@ -75,17 +76,13 @@ class EvalRunner:
             for seed in cfg.seeds:
                 logger.info("Running strategy=%s seed=%d", strategy_name, seed)
                 t_start = time.time()
-                client_deltas, per_round_times, accumulated_residuals = (
-                    self._train_clients_and_collect_deltas(
-                        client_partitions,
-                        strategy_name,
-                        seed,
-                    )
+                client_deltas, per_round_times = self._train_clients_and_collect_deltas(
+                    client_partitions,
+                    strategy_name,
+                    seed,
                 )
                 aggregated = get_strategy(strategy_name).aggregate(client_deltas)
-                frob = frobenius_reconstruction_error(
-                    aggregated, client_deltas, extra_base=accumulated_residuals
-                )
+                frob = frobenius_reconstruction_error(aggregated, client_deltas)
                 task_metric = self._evaluate_aggregated(aggregated, eval_data)
                 t_total = time.time() - t_start
                 results.append(
@@ -187,21 +184,23 @@ class EvalRunner:
         partitions: list[list[dict[str, Any]]],
         strategy: str,
         seed: int,
-    ) -> tuple[list[dict[str, torch.Tensor]], list[float], dict[str, torch.Tensor]]:
-        """Train a LoRA adapter on each client partition; return list of deltas, per-round times,
-        and accumulated residuals.
+    ) -> tuple[list[dict[str, torch.Tensor]], list[float]]:
+        """Train a LoRA adapter on each client partition; return list of deltas + per-round times.
 
         For multi-round runs with strategy=fedex-lora and fold_residuals=True:
         - After each round's aggregation, residuals are retrieved from FedExLoRA and
-          accumulated into a running dict keyed by layer name.
-        - The accumulated residuals are returned so the caller can account for the folded
-          information when computing the Frobenius reconstruction error.
+          accumulated.
+        - The next round's clients train against `base + accumulated_residuals` via
+          `_train_one_client(..., extra_base=...)` — matching real federation semantics.
 
-        When fold_residuals=False OR strategy!=fedex-lora, accumulated_residuals is
-        always empty (preserving the pre-v0.2.1 single-round semantics for those cases).
+        When fold_residuals=False OR strategy!=fedex-lora, no residual injection happens
+        and each round retrains against the original base. The seed is mixed with
+        round_idx so that, even in the no-fold case, each round produces different
+        deltas (otherwise N rounds of identical-input identical-output training would
+        be wasted computation and make the multi-round semantics meaningless).
 
         DP noise (#20): if cfg.dp_epsilon is not None, each client's delta is noised via
-        apply_dp() before being passed to the aggregator.  When cfg.dp_epsilon is None no
+        apply_dp() before being passed to the aggregator. When cfg.dp_epsilon is None no
         noise is added (current behavior — explicit).
         """
         cfg = self.config
@@ -213,14 +212,25 @@ class EvalRunner:
         torch.manual_seed(seed)
 
         deltas: list[dict[str, torch.Tensor]] = []
-        for _round_idx in range(cfg.num_rounds):
+        for round_idx in range(cfg.num_rounds):
             t0 = time.time()
             round_deltas: list[dict[str, torch.Tensor]] = []
             for client_idx, partition in enumerate(partitions):
                 client_rank = (
                     cfg.heterogeneous_rank[client_idx] if cfg.heterogeneous_rank else cfg.rank
                 )
-                delta = self._train_one_client(partition, client_rank, seed=seed + client_idx)
+                # Mix round_idx into the seed so each round's training produces a
+                # different delta. Without this, every round retrains against the
+                # same base with the same seed and same data — producing identical
+                # deltas and turning across-round residual accumulation into a
+                # meaningless N×single_residual artifact.
+                client_seed = seed + client_idx + round_idx * 1000
+                delta = self._train_one_client(
+                    partition,
+                    client_rank,
+                    seed=client_seed,
+                    extra_base=accumulated_residuals if do_fold else None,
+                )
 
                 # Issue #20: apply DP noise to each client delta before aggregation
                 if cfg.dp_epsilon is not None:
@@ -234,15 +244,15 @@ class EvalRunner:
                 round_deltas.append(delta)
             per_round_times.append(time.time() - t0)
 
-            # Issue #19: aggregate per-round and capture residuals when folding is enabled
+            # Issue #19: aggregate per-round and capture residuals when folding is enabled.
+            # The residuals from this round get injected into next round's base via
+            # the extra_base parameter of _train_one_client above, so round N+1's
+            # clients train against base + sum(R_1..R_N) — matching real federation
+            # semantics, not the no-op stacking the initial implementation produced.
             if do_fold and cfg.num_rounds > 1:
-                # Create a fresh FedExLoRA instance to aggregate this round's deltas and
-                # retrieve the SVD residuals.
                 strategy_instance = FedExLoRA()
                 strategy_instance.aggregate(round_deltas)
                 round_residuals = strategy_instance.get_residuals()
-                # Accumulate residuals across rounds (additive — each round's residual
-                # is the information the rank-r adapter could not represent that round)
                 for layer_name, residual in round_residuals.items():
                     if layer_name in accumulated_residuals:
                         accumulated_residuals[layer_name] = (
@@ -253,15 +263,23 @@ class EvalRunner:
 
             deltas = round_deltas
 
-        return deltas, per_round_times, accumulated_residuals
+        return deltas, per_round_times
 
     def _train_one_client(
         self,
         examples: list[dict[str, Any]],
         rank: int,
         seed: int,
+        extra_base: dict[str, torch.Tensor] | None = None,
     ) -> dict[str, torch.Tensor]:
-        """Train a tiny LoRA adapter on one client's partition; return the adapter state dict."""
+        """Train a tiny LoRA adapter on one client's partition; return the adapter state dict.
+
+        When `extra_base` is provided (a dict of layer_name -> residual matrix from
+        prior rounds), the residuals are folded into the base model's weights
+        before LoRA is attached. This matches real-federation semantics: clients
+        in round N+1 train against `base + sum(R_1..R_N)`, not against the
+        unmodified `base`.
+        """
         from peft import LoraConfig, TaskType, get_peft_model
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -272,6 +290,15 @@ class EvalRunner:
         if tok.pad_token is None:
             tok.pad_token = tok.eos_token if tok.eos_token else "[PAD]"
         model = AutoModelForCausalLM.from_pretrained(self.config.model_id)
+
+        # Issue #19 (full fix): inject prior-round residuals into the base model
+        # weights so this round's training is against the folded base, not the
+        # untouched pretrained weights.
+        if extra_base:
+            state_dict = model.state_dict()
+            state_dict = fold_residuals_into_base(state_dict, extra_base)
+            model.load_state_dict(state_dict)
+
         model.eval()  # freeze base
 
         # Attach LoRA
