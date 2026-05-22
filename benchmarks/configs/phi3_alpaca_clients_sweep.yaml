@@ -1,0 +1,19 @@
+# Phi-3-mini on Alpaca-1k: sweep num_clients ∈ {2, 5, 10, 20}.
+# Measures how aggregation quality degrades as the federation grows.
+# ~15 min/run on A100; 4 client points × 3 seeds × 2 strategies = 24 runs ≈ 6 GPU-hr.
+
+model_id: microsoft/Phi-3-mini-4k-instruct
+dataset:
+  name: tatsu-lab/alpaca
+  split: train
+  max_examples: 1000
+num_rounds: 5
+strategies: [fedavg, fedex-lora]
+rank: 8
+seeds: [0, 1, 2]
+max_steps_per_round: 200
+eval_batch_size: 4
+target_modules: [q_proj, v_proj]
+partition: iid
+sweep:
+  num_clients: [2, 5, 10, 20]

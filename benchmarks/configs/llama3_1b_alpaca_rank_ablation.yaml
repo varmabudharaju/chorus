@@ -1,0 +1,19 @@
+# Llama-3.2-1B on Alpaca-1k: sweep rank ∈ {4, 8, 16}.
+# Tests whether the FedEx-LoRA advantage scales with rank.
+# ~10 min/run on A100; 3 ranks × 3 seeds × 2 strategies = 18 runs ≈ 3 GPU-hr.
+
+model_id: meta-llama/Llama-3.2-1B
+dataset:
+  name: tatsu-lab/alpaca
+  split: train
+  max_examples: 1000
+num_clients: 10
+num_rounds: 5
+strategies: [fedavg, fedex-lora]
+seeds: [0, 1, 2]
+max_steps_per_round: 200
+eval_batch_size: 4
+target_modules: [q_proj, v_proj]
+partition: iid
+sweep:
+  rank: [4, 8, 16]

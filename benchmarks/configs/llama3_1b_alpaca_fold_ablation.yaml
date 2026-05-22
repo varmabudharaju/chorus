@@ -1,0 +1,28 @@
+# Llama-3.2-1B on Alpaca-1k: sweep fold_residuals ∈ {true, false}.
+# The headline "mathematically exact" claim holds only when fold_residuals=true.
+# This ablation makes the cost of fold-off explicit in the published numbers.
+# 2 fold × 3 seeds × 2 strategies = 12 runs ≈ 2 GPU-hr.
+#
+# !!! DO NOT RUN BEFORE ISSUE #19 LANDS !!!
+# As of PR #18, chorus/eval/runner.py:EvalRunner does NOT read
+# EvalConfig.fold_residuals. Both arms of this sweep would currently produce
+# identical numbers — a fabricated ablation. Issue #19 tracks the runner-side
+# threading required to make this YAML meaningful, and is a blocker for the
+# v0.2.0 benchmark-results PR. Remove this warning once #19 closes.
+
+model_id: meta-llama/Llama-3.2-1B
+dataset:
+  name: tatsu-lab/alpaca
+  split: train
+  max_examples: 1000
+num_clients: 10
+num_rounds: 5
+strategies: [fedavg, fedex-lora]
+rank: 8
+seeds: [0, 1, 2]
+max_steps_per_round: 200
+eval_batch_size: 4
+target_modules: [q_proj, v_proj]
+partition: iid
+sweep:
+  fold_residuals: [true, false]

@@ -1,0 +1,24 @@
+# Llama-3.2-1B on Alpaca-1k with heterogeneous-rank clients.
+# Single-point experiment (no sweep): 4 clients with ranks [4, 8, 16, 32].
+# Tests that FedEx-LoRA correctly aggregates across mismatched ranks.
+#
+# FedAvg is intentionally excluded: chorus/server/aggregation.py:54 rejects
+# heterogeneous tensor shapes with "FedAvg requires uniform tensor shapes — use
+# fedex-lora for heterogeneous LoRA ranks." Including fedavg here would crash
+# the run mid-sweep, not produce a comparison.
+
+model_id: meta-llama/Llama-3.2-1B
+dataset:
+  name: tatsu-lab/alpaca
+  split: train
+  max_examples: 1000
+num_clients: 4
+num_rounds: 5
+strategies: [fedex-lora]
+rank: 8                  # default; per-client overrides below
+heterogeneous_rank: [4, 8, 16, 32]
+seeds: [0, 1, 2]
+max_steps_per_round: 200
+eval_batch_size: 4
+target_modules: [q_proj, v_proj]
+partition: iid
