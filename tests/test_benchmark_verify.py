@@ -51,10 +51,20 @@ class TestPasses:
         verify(report)
 
     def test_fedex_equal_within_tolerance(self, tmp_path):
-        """FedEx within 1e-4 of FedAvg is acceptable (float32 noise floor)."""
+        """FedEx within tolerance of FedAvg is acceptable (float32 noise floor)."""
+        from benchmarks.verify_smoke_results import TOLERANCE
+
         verify = _import_verify()
         report = tmp_path / "report.json"
-        _write_report(report, fedavg_frob=0.5000, fedex_frob=0.5001)
+        # Sit at half of TOLERANCE so this test stays correct even if TOLERANCE
+        # is later tightened slightly. The earlier 0.5001 vs 0.5000 value had
+        # exactly TOLERANCE of headroom and would flip false-positive on any
+        # downward tweak.
+        _write_report(
+            report,
+            fedavg_frob=0.5000,
+            fedex_frob=0.5000 + TOLERANCE * 0.5,
+        )
         verify(report)
 
 
