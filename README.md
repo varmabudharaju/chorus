@@ -5,7 +5,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![PyPI version](https://img.shields.io/pypi/v/chorus-fl.svg)](https://pypi.org/project/chorus-fl/)
 
-**Federated LoRA fine-tuning with mathematically exact aggregation.**
+**Federated LoRA fine-tuning with mathematically exact aggregation — when residuals are folded into base weights every round ([details](docs/honest-tradeoffs.md#exactness)).**
 
 Chorus is a framework for federated fine-tuning of large language models using LoRA adapters. Multiple clients train on their private data, submit adapter deltas to a central server, and receive back aggregated improvements — without sharing any raw data.
 
@@ -24,6 +24,19 @@ Client 1 (private data)          Aggregation Server           Client 2 (private 
 │  4. Repeat          │       │  WS: round_complete │       │  4. Repeat          │
 └─────────────────────┘       └─────────────────────┘       └─────────────────────┘
 ```
+
+## Honest tradeoffs
+
+Chorus's claims hold under conditions that aren't always obvious from a quickstart.
+Before relying on any of them, read [docs/honest-tradeoffs.md](docs/honest-tradeoffs.md).
+Highlights:
+
+- **"Mathematically exact" aggregation** holds when residuals are folded into base weights every round — the default server path, but not yet the eval harness ([#19](https://github.com/varmabudharaju/chorus/issues/19)). [More](docs/honest-tradeoffs.md#exactness)
+- **Differential privacy** is per-submission Gaussian noise with a stateful accountant — but the accountant is opt-in and currently only reachable by calling `chorus.server.app.configure()` programmatically ([#25](https://github.com/varmabudharaju/chorus/issues/25) tracks the missing CLI flag). Without it, privacy loss accumulates unbounded. [More](docs/honest-tradeoffs.md#differential-privacy)
+- **"Byzantine defenses"** are sanity checks against naive attackers (norm bound + z-score outlier). They will not stop an adaptive adversary. Real Byzantine-robust aggregation is on the Phase 2 roadmap. [More](docs/honest-tradeoffs.md#byzantine-robustness)
+- **API keys are global.** No per-model scoping in v0.2.0. Run one server per trust boundary. [More](docs/honest-tradeoffs.md#multi-tenant-scope)
+- **Heterogeneous-rank clients** work on `fedex-lora` and crash on `fedavg`. [More](docs/honest-tradeoffs.md#heterogeneous-clients)
+- **Alpha software:** single-process server, in-memory rate limiter, filesystem storage, HTTP. Not hardened for multi-tenant production. [More](docs/honest-tradeoffs.md#production-readiness)
 
 ## Installation
 
@@ -297,8 +310,8 @@ chorus/
 Chorus includes several security mechanisms for production deployments:
 
 - **Authentication** — Bearer token auth via `--api-key` (supports multiple keys)
-- **Differential privacy** — Gaussian DP with global L2 clipping at both client and server level
-- **Byzantine defenses** — L2 norm bounding (`--norm-bound`) and z-score outlier detection (`--outlier-threshold`) reject malicious or corrupted deltas
+- **Differential privacy** — Per-submission Gaussian DP with global L2 clipping (`--dp-epsilon`), plus a stateful `PrivacyAccountant` (RDP composition via Google's `dp-accounting`, `opacus` fallback). Accountant enforcement is opt-in and currently reachable only by calling `chorus.server.app.configure()` programmatically with `accountant_target_epsilon` — the matching CLI flag is tracked in [#25](https://github.com/varmabudharaju/chorus/issues/25). Without the accountant, privacy loss accumulates unbounded across rounds. The eval harness does not yet apply DP ([#20](https://github.com/varmabudharaju/chorus/issues/20)); the *server* path does. [Details](docs/honest-tradeoffs.md#differential-privacy).
+- **Sanity-check defenses against naive attackers** — L2 norm bounding (`--norm-bound`) and z-score outlier detection (`--outlier-threshold`) reject deltas with absurd magnitude or those several standard deviations from the round's median. These catch random-noise injection and trivial corruption; they **do not** stop coordinated attackers staying under the bound, label-flipping at the task level, or gradient-inversion attacks ([details](docs/honest-tradeoffs.md#byzantine-robustness)). Real Byzantine-robust aggregation (Krum, coordinate-wise median) is on the Phase 2 roadmap.
 - **Rate limiting** — Per-IP request throttling via `--rate-limit`
 - **safetensors only** — All weight serialization uses safetensors format (no pickle deserialization)
 
@@ -350,6 +363,10 @@ chorus train \
   --rounds 10 \
   --lora-rank 16
 ```
+
+### Production readiness
+
+Chorus is **alpha software** in v0.2.0. Suitable for research, small internal federations, and benchmarks; not hardened for multi-tenant production. Single-process FastAPI server, in-memory rate limiter, filesystem storage, HTTP (terminate TLS at a reverse proxy). API keys are global — run one server per trust boundary. See [docs/honest-tradeoffs.md#production-readiness](docs/honest-tradeoffs.md#production-readiness) for the full list of caveats and what's on the roadmap to fix each.
 
 ## Examples
 
