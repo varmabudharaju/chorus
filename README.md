@@ -310,8 +310,8 @@ chorus/
 Chorus includes several security mechanisms for production deployments:
 
 - **Authentication** — Bearer token auth via `--api-key` (supports multiple keys)
-- **Differential privacy** — Gaussian DP with global L2 clipping at both client and server level
-- **Byzantine defenses** — L2 norm bounding (`--norm-bound`) and z-score outlier detection (`--outlier-threshold`) reject malicious or corrupted deltas
+- **Differential privacy** — Per-submission Gaussian DP with global L2 clipping, plus a stateful `PrivacyAccountant` (RDP composition via Google's `dp-accounting`, `opacus` fallback). Configure `--accountant-target-epsilon` on the server to halt before you exceed your budget; without it, privacy loss accumulates unbounded across rounds. The eval harness does not yet apply DP ([#20](https://github.com/varmabudharaju/chorus/issues/20)); the *server* path does. [Details](docs/honest-tradeoffs.md#differential-privacy).
+- **Sanity-check defenses against naive attackers** — L2 norm bounding (`--norm-bound`) and z-score outlier detection (`--outlier-threshold`) reject deltas with absurd magnitude or those several standard deviations from the round's median. These catch random-noise injection and trivial corruption; they **do not** stop coordinated attackers staying under the bound, label-flipping at the task level, or gradient-inversion attacks ([details](docs/honest-tradeoffs.md#byzantine-robustness)). Real Byzantine-robust aggregation (Krum, coordinate-wise median) is on the Phase 2 roadmap.
 - **Rate limiting** — Per-IP request throttling via `--rate-limit`
 - **safetensors only** — All weight serialization uses safetensors format (no pickle deserialization)
 
