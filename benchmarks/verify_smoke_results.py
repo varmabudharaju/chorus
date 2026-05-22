@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import statistics
 import sys
 from pathlib import Path
 
@@ -21,6 +22,10 @@ TOLERANCE = 1e-4
 
 def verify(report_path: str | Path) -> None:
     """Load a report.json and assert FedEx-LoRA's Frobenius <= FedAvg's (within tolerance).
+
+    Across multiple seeds, both strategies' errors are reduced to their mean.
+    The earlier reducer was `min`, which let each strategy cherry-pick its best
+    seed independently — a fair regression check needs a stable summary.
 
     Raises:
         FileNotFoundError: if the report does not exist.
@@ -42,19 +47,18 @@ def verify(report_path: str | Path) -> None:
     if "fedex-lora" not in by_strategy:
         raise AssertionError(f"{report_path}: missing fedex-lora results")
 
-    # Compare best (i.e., minimum) Frobenius error per strategy across seeds.
-    fedavg_frob = min(r["frobenius_error"] for r in by_strategy["fedavg"])
-    fedex_frob = min(r["frobenius_error"] for r in by_strategy["fedex-lora"])
+    fedavg_frob = statistics.mean(r["frobenius_error"] for r in by_strategy["fedavg"])
+    fedex_frob = statistics.mean(r["frobenius_error"] for r in by_strategy["fedex-lora"])
 
     if fedex_frob > fedavg_frob + TOLERANCE:
         raise AssertionError(
-            f"{report_path}: fedex-lora frobenius_error ({fedex_frob:.6f}) > "
+            f"{report_path}: fedex-lora mean frobenius_error ({fedex_frob:.6f}) > "
             f"fedavg ({fedavg_frob:.6f}) + tolerance ({TOLERANCE}) — "
             f"the exact-aggregation claim is contradicted by this smoke run."
         )
 
     print(
-        f"OK: fedex-lora frobenius ({fedex_frob:.6f}) <= "
+        f"OK: fedex-lora mean frobenius ({fedex_frob:.6f}) <= "
         f"fedavg ({fedavg_frob:.6f}) + tol ({TOLERANCE})"
     )
 
