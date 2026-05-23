@@ -41,3 +41,28 @@ def test_version_triplet_agrees():
         f"Version drift detected: pyproject={pp!r}, package={pkg!r}, fastapi={fa!r}. "
         "Update all three together for any version bump."
     )
+
+
+def test_cli_version_flag_does_not_crash():
+    """`chorus --version` must report the version, not crash with a Click RuntimeError.
+
+    Regression guard for a v0.1.0-era latent bug: cli/main.py used
+    @click.version_option(package_name="chorus") but the installed distribution is
+    "chorus-fl". The mismatch caused Click to raise "chorus is not installed.
+    Try passing 'package_name' instead." on every --version invocation. No test
+    exercised the flag, so the bug shipped silently until the v0.2.0 release audit.
+    """
+    from click.testing import CliRunner
+
+    from chorus.cli.main import cli
+
+    runner = CliRunner()
+    res = runner.invoke(cli, ["--version"])
+    assert res.exit_code == 0, (
+        f"chorus --version exited {res.exit_code}; "
+        f"output: {res.output!r}; exception: {res.exception!r}"
+    )
+    assert _pyproject_version() in res.output, (
+        f"chorus --version output {res.output!r} did not contain the "
+        f"pyproject.toml version {_pyproject_version()!r}"
+    )

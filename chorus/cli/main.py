@@ -53,7 +53,7 @@ def handle_errors(f):
 
 
 @click.group()
-@click.version_option(package_name="chorus")
+@click.version_option(package_name="chorus-fl")
 def cli():
     """Chorus — Federated LoRA Adapter Aggregation Framework."""
     pass

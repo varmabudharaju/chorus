@@ -321,7 +321,7 @@ Chorus includes several security mechanisms for production deployments:
 
 | Strategy | Exact? | Description |
 |----------|--------|-------------|
-| `fedex-lora` (default) | Yes | SVD-based exact aggregation with residual folding |
+| `fedex-lora` (default) | Yes — [when residuals are folded](docs/honest-tradeoffs.md#exactness) | SVD-based exact aggregation with residual folding |
 | `fedavg` | No | Naive independent averaging of A and B matrices |
 
 ## Configuration Examples
@@ -335,11 +335,15 @@ chorus server \
   --api-key $SECRET_KEY_1 \
   --api-key $SECRET_KEY_2 \
   --dp-epsilon 2.0 \
+  --accountant-target-epsilon 8.0 \
+  --accountant-noise-multiplier 1.1 \
   --norm-bound 10.0 \
   --outlier-threshold 3.0 \
   --rate-limit 60 \
   --base-weights ./base-model.safetensors
 ```
+
+> **Note:** `--dp-epsilon` alone applies noise per submission but does NOT bound cumulative privacy loss. Pair it with `--accountant-target-epsilon` and `--accountant-noise-multiplier` (the example above) so the server refuses further submissions from a client once the budget is exhausted. See [docs/honest-tradeoffs.md#differential-privacy](docs/honest-tradeoffs.md#differential-privacy).
 
 ### Client with local DP
 
